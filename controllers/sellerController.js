@@ -89,8 +89,7 @@ const registerSeller = async (req, res) => {
     } else {
       // Invalid or missing — remove coordinates field to avoid MongoDB errors
       if (location?.coordinates) {
-        delete location.coordinates.coordinates;
-        delete location.coordinates.type;
+        delete location.coordinates;
       }
     }
 
