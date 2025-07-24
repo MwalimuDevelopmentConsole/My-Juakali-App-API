@@ -77,6 +77,23 @@ const registerSeller = async (req, res) => {
       100000 + Math.random() * 900000
     ).toString();
 
+    // Optional location coordinates validation
+    if (
+      location?.coordinates?.coordinates &&
+      Array.isArray(location.coordinates.coordinates) &&
+      location.coordinates.coordinates.length === 2 &&
+      typeof location.coordinates.coordinates[0] === "number" &&
+      typeof location.coordinates.coordinates[1] === "number"
+    ) {
+      // Valid coordinates — do nothing
+    } else {
+      // Invalid or missing — remove coordinates field to avoid MongoDB errors
+      if (location?.coordinates) {
+        delete location.coordinates.coordinates;
+        delete location.coordinates.type;
+      }
+    }
+
     const sellerData = {
       email,
       password,
