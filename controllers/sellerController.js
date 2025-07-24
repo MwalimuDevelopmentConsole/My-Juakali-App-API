@@ -3,6 +3,7 @@ const UserSubscription = require("../models/SellerSubscription");
 const Seller = require("../models/Seller");
 const { generateTokens } = require("./authController");
 const Marketer = require("../models/Marketer");
+const crypto = require("crypto");
 
 // @desc    Register new seller
 // @route   POST /api/sellers/register
