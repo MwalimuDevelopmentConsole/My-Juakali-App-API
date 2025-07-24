@@ -7,6 +7,7 @@ const authRoutes = require('./authRoutes');
 const buyerRoutes = require('./buyerRoutes');
 const sellerRoutes = require('./sellerRoutes');
 const categoryRoutes = require('./categoryRoutes');
+const authGoogleRoutes = require('./authGoogleRoutes');
 
 
 
@@ -27,6 +28,7 @@ router.use('/auth', authRoutes);
 router.use('/buyers', buyerRoutes);
 router.use('/sellers', sellerRoutes);
 router.use('/categories', categoryRoutes);
+router.use('/auth/google', authGoogleRoutes);
 
 
 
