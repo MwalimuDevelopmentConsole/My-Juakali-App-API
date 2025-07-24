@@ -37,6 +37,12 @@ const buyerSchema = new Schema({
     trim: true,
     sparse: true // Allow multiple null values but unique non-null values
   },
+
+  role: {
+    type: String,
+    enum: ['buyer', 'client'], // Only buyers and clients can register
+    default: 'buyer',
+  },
   
   // Account Status
   isActive: {
@@ -94,14 +100,6 @@ const buyerSchema = new Schema({
   timestamps: true,
   toJSON: { 
     virtuals: true,
-    transform: function(doc, ret) {
-      delete ret.password;
-      delete ret.emailVerificationToken;
-      delete ret.emailVerificationExpires;
-      delete ret.passwordResetToken;
-      delete ret.passwordResetExpires;
-      return ret;
-    }
   },
   toObject: { virtuals: true }
 });
