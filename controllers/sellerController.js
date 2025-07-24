@@ -2,6 +2,7 @@ const SubscriptionPlan = require("../models/SubscriptionPlan");
 const UserSubscription = require("../models/SellerSubscription");
 const Seller = require("../models/Seller");
 const { generateTokens } = require("./authController");
+const Marketer = require("../models/Marketer");
 
 // @desc    Register new seller
 // @route   POST /api/sellers/register
