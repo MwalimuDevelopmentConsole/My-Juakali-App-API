@@ -39,9 +39,11 @@ const registerBuyer = async (req, res) => {
     const emailVerificationToken = crypto.randomBytes(32).toString("hex");
     const emailVerificationExpires = new Date(Date.now() + 24 * 60 * 60 * 1000); // 24 hours
 
+    const hashPassword = await bcrypt.hash(password, 10);
+
     const buyerData = {
       email,
-      password,
+      password: hashPassword,
       firstName,
       lastName,
       phone,
@@ -87,7 +89,6 @@ const registerBuyer = async (req, res) => {
     });
   }
 };
-
 
 // @desc    Get buyer profile
 // @route   GET /api/buyers/profile

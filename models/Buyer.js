@@ -18,7 +18,6 @@ const buyerSchema = new Schema({
     type: String,
     required: true,
     minlength: 6,
-    select: false // Don't return password in queries by default
   },
   
   // Basic Profile (Optional)

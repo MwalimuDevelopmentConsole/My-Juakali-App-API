@@ -4,6 +4,7 @@ const Seller = require("../models/Seller");
 const { generateTokens } = require("./authController");
 const Marketer = require("../models/Marketer");
 const crypto = require("crypto");
+const bcrypt = require("bcryptjs");
 
 // @desc    Register new seller
 // @route   POST /api/sellers/register
@@ -20,6 +21,8 @@ const registerSeller = async (req, res) => {
       location,
       referralCode,
     } = req.body;
+
+    console.log(req.body)
 
     // Validation
     if (
@@ -93,9 +96,11 @@ const registerSeller = async (req, res) => {
       }
     }
 
+    const hashPassword = await bcrypt.hash(password, 10);
+
     const sellerData = {
       email,
-      password,
+      password: hashPassword,
       phone,
       firstName,
       lastName,
@@ -186,6 +191,7 @@ const registerSeller = async (req, res) => {
       },
     });
   } catch (error) {
+    console.log(error)
     res.status(500).json({
       success: false,
       message: "Server Error",

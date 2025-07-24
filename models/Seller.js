@@ -21,7 +21,6 @@ const sellerSchema = new Schema(
       type: String,
       required: true,
       minlength: 6,
-      select: false,
     },
     phone: {
       type: String,
@@ -129,17 +128,17 @@ const sellerSchema = new Schema(
       ward: String,
       address: String,
       landmark: String,
-      coordinates: {
-        type: {
-          type: String,
-          enum: ["Point"],
-          default: "Point",
-        },
-        coordinates: {
-          type: [Number], // [longitude, latitude]
-          index: "2dsphere",
-        },
-      },
+      // coordinates: {
+      //   type: {
+      //     type: String,
+      //     enum: ["Point"],
+      //     default: "Point",
+      //   },
+      //   coordinates: {
+      //     type: [Number], // [longitude, latitude]
+      //     index: "2dsphere",
+      //   },
+      // },
       isPinned: {
         type: Boolean,
         default: false,
@@ -460,7 +459,7 @@ sellerSchema.index({
   "businessInfo.specialties": "text",
 });
 sellerSchema.index({ "businessInfo.specialties": 1 });
-sellerSchema.index({ "location.coordinates": "2dsphere" });
+// sellerSchema.index({ "location.coordinates": "2dsphere" });
 sellerSchema.index({ "location.county": 1, "location.subcounty": 1 });
 sellerSchema.index({ "ratings.average": -1 });
 sellerSchema.index({ status: 1, isActive: 1 });
