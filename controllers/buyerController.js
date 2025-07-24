@@ -2,6 +2,7 @@ const Buyer = require("../models/Buyer");
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
 const crypto = require("crypto");
+const { generateTokens } = require("./authController");
 
 // @desc    Register new buyer
 // @route   POST /api/buyers/register
@@ -50,12 +51,16 @@ const registerBuyer = async (req, res) => {
 
     const buyer = await Buyer.create(buyerData);
 
-    // Generate JWT token
-    const token = jwt.sign(
-      { id: buyer._id, userType: "buyer" },
-      process.env.JWT_SECRET,
-      { expiresIn: "30d" }
-    );
+    // Generate tokens
+    const { accessToken, refreshToken } = generateTokens(buyer, "buter");
+
+    // Set refresh token in httpOnly cookie
+    res.cookie("refreshToken", refreshToken, {
+      httpOnly: true,
+      secure: true, // Use secure cookies in production
+      sameSite: "strict",
+      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
+    });
 
     // TODO: Send verification email
     // await sendVerificationEmail(buyer.email, emailVerificationToken);
@@ -64,7 +69,7 @@ const registerBuyer = async (req, res) => {
       success: true,
       message:
         "Buyer registered successfully. Please check your email to verify your account.",
-      token,
+      accessToken,
       buyer: {
         id: buyer._id,
         email: buyer.email,

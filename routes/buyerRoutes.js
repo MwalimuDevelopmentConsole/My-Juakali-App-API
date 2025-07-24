@@ -1,4 +1,3 @@
-// routes/historyRoutes.js
 const express = require('express');
 const router = express.Router();
 
@@ -11,7 +10,7 @@ const { authenticateToken, isClient } = require('../middleware/auth');
 // Buyer routes
 router.post('/register', buyerController.registerBuyer)
        .get('/profile', authenticateToken, isClient, buyerController.getBuyerProfile)
-       .patch('/profile', authenticateToken, isClient, buyerController.updateBuyerProfile)
+       .patch('/update-profile', authenticateToken, isClient, buyerController.updateBuyerProfile)
        .post('/verify-email/:token', buyerController.verifyEmail)
        .post('/forgot-password', buyerController.forgotPassword)
        .post('/reset-password/:token', buyerController.resetPassword);

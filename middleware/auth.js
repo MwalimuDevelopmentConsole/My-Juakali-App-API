@@ -162,6 +162,22 @@ const createRateLimit = (windowMs, max, message) => {
   };
 };
 
+const authorize = (roles) => {
+  return (req, res, next) => {
+    if (!req.user) {
+      const response = formatResponse(false, null, 'Authentication required', 401);
+      return res.status(response.statusCode).json(response);
+    }
+    
+    if (!roles.includes(req.user.role)) {
+      const response = formatResponse(false, null, 'Access denied', 403);
+      return res.status(response.statusCode).json(response);
+    }
+    
+    next();
+  };
+};
+
 
 
 module.exports = {
@@ -171,5 +187,5 @@ module.exports = {
   isAuthenticated,
   optionalAuth,
   createRateLimit,
-  
+  authorize
 };

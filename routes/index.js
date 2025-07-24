@@ -5,6 +5,8 @@ const router = express.Router();
 // Import route modules
 const authRoutes = require('./authRoutes');
 const buyerRoutes = require('./buyerRoutes');
+const sellerRoutes = require('./sellerRoutes');
+const categoryRoutes = require('./categoryRoutes');
 
 
 
@@ -23,6 +25,8 @@ router.get('/health', (req, res) => {
 // Mount route modules
 router.use('/auth', authRoutes);
 router.use('/buyers', buyerRoutes);
+router.use('/sellers', sellerRoutes);
+router.use('/categories', categoryRoutes);
 
 
 

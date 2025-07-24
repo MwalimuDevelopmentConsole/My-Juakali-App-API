@@ -291,5 +291,6 @@ module.exports = {
   refreshToken,
   logout,
   verifyToken,
-  changePassword
+  changePassword,
+  generateTokens
 };

@@ -759,11 +759,237 @@ const getSellerProducts = async (req, res) => {
   }
 };
 
+// @desc    Search products with category grouping
+// @route   GET /api/search/products
+// @access  Public
+const searchProducts = async (req, res) => {
+  try {
+    const { query, limit = 5 } = req.query;
+    
+    // Validation
+    if (!query || query.trim().length < 2) {
+      return res.status(400).json({
+        success: false,
+        message: 'Search query must be at least 2 characters long'
+      });
+    }
+    
+    const searchTerm = query.trim();
+    const searchRegex = new RegExp(searchTerm, 'i');
+    
+    // Find products matching the search term
+    const matchingProducts = await Product.aggregate([
+      {
+        $match: {
+          status: 'active',
+          $or: [
+            { title: searchRegex },
+            { description: searchRegex },
+            { tags: { $in: [searchRegex] } },
+            { keywords: { $in: [searchRegex] } },
+            { shortDescription: searchRegex }
+          ]
+        }
+      },
+      
+      // Lookup seller information to ensure active sellers
+      {
+        $lookup: {
+          from: 'sellers',
+          localField: 'seller',
+          foreignField: '_id',
+          as: 'sellerInfo'
+        }
+      },
+      { $unwind: '$sellerInfo' },
+      
+      // Only include active sellers
+      {
+        $match: {
+          'sellerInfo.status': 'active',
+          'sellerInfo.isActive': true
+        }
+      },
+      
+      // Lookup primary category information
+      {
+        $lookup: {
+          from: 'categories',
+          localField: 'primaryCategory',
+          foreignField: '_id',
+          as: 'categoryInfo'
+        }
+      },
+      { $unwind: '$categoryInfo' },
+      
+      // Lookup parent category if it exists
+      {
+        $lookup: {
+          from: 'categories',
+          localField: 'categoryInfo.parentCategory',
+          foreignField: '_id',
+          as: 'parentCategoryInfo'
+        }
+      },
+      
+      // Group by category to count products per category
+      {
+        $group: {
+          _id: {
+            categoryId: '$categoryInfo._id',
+            categoryName: '$categoryInfo.name',
+            categorySlug: '$categoryInfo.slug',
+            parentCategoryId: { $arrayElemAt: ['$parentCategoryInfo._id', 0] },
+            parentCategoryName: { $arrayElemAt: ['$parentCategoryInfo.name', 0] },
+            parentCategorySlug: { $arrayElemAt: ['$parentCategoryInfo.slug', 0] }
+          },
+          productCount: { $sum: 1 },
+          sampleProducts: {
+            $push: {
+              _id: '$_id',
+              title: '$title',
+              slug: '$slug',
+              pricing: '$pricing',
+              images: { $slice: ['$media.images', 1] }, // First image only
+              location: '$location',
+              createdAt: '$createdAt'
+            }
+          }
+        }
+      },
+      
+      // Limit sample products per category
+      {
+        $addFields: {
+          sampleProducts: { $slice: ['$sampleProducts', parseInt(limit)] }
+        }
+      },
+      
+      // Sort by product count (most relevant categories first)
+      { $sort: { productCount: -1 } },
+      
+      // Limit to top 10 categories
+      { $limit: 10 },
+      
+      // Format the output
+      {
+        $project: {
+          _id: 0,
+          category: {
+            id: '$_id.categoryId',
+            name: '$_id.categoryName',
+            slug: '$_id.categorySlug'
+          },
+          parentCategory: {
+            id: '$_id.parentCategoryId',
+            name: '$_id.parentCategoryName',
+            slug: '$_id.parentCategorySlug'
+          },
+          productCount: 1,
+          searchSuggestion: {
+            $concat: [
+              searchTerm,
+              ' in ',
+              {
+                $cond: {
+                  if: { $ne: ['$_id.parentCategoryName', null] },
+                  then: '$_id.parentCategoryName',
+                  else: '$_id.categoryName'
+                }
+              }
+            ]
+          },
+          displayCategory: {
+            $cond: {
+              if: { $ne: ['$_id.parentCategoryName', null] },
+              then: '$_id.parentCategoryName',
+              else: '$_id.categoryName'
+            }
+          },
+          sampleProducts: 1
+        }
+      }
+    ]);
+    
+    // Also get direct product matches for instant results
+    const directMatches = await Product.find({
+      status: 'active',
+      $or: [
+        { title: searchRegex },
+        { tags: { $in: [searchRegex] } }
+      ]
+    })
+    .populate('seller', 'firstName lastName businessInfo.businessName isActive status')
+    .populate('primaryCategory', 'name slug')
+    .select('title slug pricing media.images location createdAt')
+    .limit(5)
+    .sort({ createdAt: -1 });
+    
+    // Filter out products from inactive sellers
+    const filteredDirectMatches = directMatches.filter(product => 
+      product.seller && product.seller.isActive && product.seller.status === 'active'
+    );
+    
+    // Get total count of matching products
+    const totalMatches = await Product.aggregate([
+      {
+        $match: {
+          status: 'active',
+          $or: [
+            { title: searchRegex },
+            { description: searchRegex },
+            { tags: { $in: [searchRegex] } },
+            { keywords: { $in: [searchRegex] } },
+            { shortDescription: searchRegex }
+          ]
+        }
+      },
+      {
+        $lookup: {
+          from: 'sellers',
+          localField: 'seller',
+          foreignField: '_id',
+          as: 'sellerInfo'
+        }
+      },
+      { $unwind: '$sellerInfo' },
+      {
+        $match: {
+          'sellerInfo.status': 'active',
+          'sellerInfo.isActive': true
+        }
+      },
+      {
+        $count: 'total'
+      }
+    ]);
+    
+    const totalCount = totalMatches[0]?.total || 0;
+    
+    res.status(200).json({
+      success: true,
+      searchQuery: searchTerm,
+      totalProducts: totalCount,
+      categorySuggestions: matchingProducts,
+      directMatches: filteredDirectMatches,
+      suggestionsCount: matchingProducts.length
+    });
+    
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: 'Server Error',
+      error: error.message
+    });
+  }
+};
+
 module.exports = {
   getProducts,
   getProduct,
   createProduct,
   updateProduct,
   deleteProduct,
-  getSellerProducts
+  getSellerProducts,
+  searchProducts
 };
