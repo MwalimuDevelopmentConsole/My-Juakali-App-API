@@ -124,18 +124,9 @@ const createCategory = async (req, res) => {
     // Handle image upload
     let imageData = {};
     if (req.file) {
-      const result = await cloudinary.uploader.upload(req.file.path, {
-        folder: "myjuakali/categories",
-        transformation: [
-          { width: 300, height: 300, crop: "fill" },
-          { quality: "auto:good" },
-        ],
-      });
-
       imageData = {
-        url: result.secure_url,
-        publicId: result.public_id,
-        alt: name,
+        url: `${process.env.API_DOMAIN}/uploads/${req.file.path}`,
+        alt: req.file.originalname,
       };
     }
 
@@ -212,25 +203,14 @@ const updateCategory = async (req, res) => {
     }
 
     // Handle image upload
+    let imageData = {};
     if (req.file) {
-      // Delete old image
-      if (category.image && category.image.publicId) {
-        await cloudinary.uploader.destroy(category.image.publicId);
-      }
-
-      const result = await cloudinary.uploader.upload(req.file.path, {
-        folder: "myjuakali/categories",
-        transformation: [
-          { width: 300, height: 300, crop: "fill" },
-          { quality: "auto:good" },
-        ],
-      });
-
-      category.image = {
-        url: result.secure_url,
-        publicId: result.public_id,
-        alt: name || category.name,
+      imageData = {
+        url: `${process.env.API_DOMAIN}/uploads/${req.file.path}`,
+        alt: req.file.originalname,
       };
+
+      category.image = imageData;
     }
 
     // Update fields
