@@ -137,7 +137,7 @@ const createCategory = async (req, res) => {
       image: imageData,
       parentCategory: parentCategory || null,
       level,
-      dynamicFields: dynamicFields || [],
+      dynamicFields: JSON.parse(dynamicFields) || [],
       metaTitle,
       metaDescription,
       keywords: keywords ? keywords.split(",").map((k) => k.trim()) : [],
