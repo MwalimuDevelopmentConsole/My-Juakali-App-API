@@ -1,4 +1,4 @@
-const UserSubscription = require("../models/UserSubscription");
+const UserSubscription = require("../models/SellerSubscription");
 const Seller = require("../models/Seller");
 const Category = require("../models/Category");
 const Product = require("../models/Product");
@@ -539,7 +539,7 @@ const createProduct = async (req, res) => {
         const file = req.files[i];
 
         images.push({
-          url: `${process.env.API_DOMAIN}/uploads/${file.filename}`,
+          url: `${process.env.API_DOMAIN}/${file.path}`,
           publicId: null, // Not used anymore
           alt: file.originalname, // Alt text from original filename
           isPrimary: i === 0, // First image is primary
@@ -640,7 +640,7 @@ const updateProduct = async (req, res) => {
 
       // Build new image data using local file paths
       const newImages = req.files.map((file, index) => ({
-        url: `${process.env.API_DOMAIN}/uploads/${file.filename}`, 
+        url: `${process.env.API_DOMAIN}/${file.path}`, 
         publicId: null,
         alt: file.originalname, // Use original filename
         isPrimary: index === 0, // First image is primary

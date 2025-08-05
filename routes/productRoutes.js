@@ -9,7 +9,7 @@ const {
   handleUploadError,
   processUploadedFiles,
   getThumbnailUrl,
-} = require("../config/cloudinary");
+} = require("../config/claudinary");
 
 // Import controllers
 const {
@@ -22,11 +22,10 @@ const {
   searchProducts,
 } = require("../controllers/productsController");
 
-const { searchProducts } = require("../controllers/searchController");
 
 // Import middleware
 const { authenticateToken, authorize } = require("../middleware/auth");
-const { Product } = require("../models");
+const  Product  = require("../models/Product");
 const { handleMulterError, upload } = require("../config/multer");
 
 // =============================================

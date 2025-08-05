@@ -2,7 +2,7 @@ const Admin = require("../models/Admin");
 const Seller = require("../models/Seller");
 const Product = require("../models/Product");
 const Review = require("../models/Review");
-const UserSubscription = require("../models/UserSubscription");
+const UserSubscription = require("../models/SellerSubscription");
 
 // @desc    Register new admin
 // @route   POST /api/admins/register

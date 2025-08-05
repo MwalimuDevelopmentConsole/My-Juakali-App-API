@@ -125,7 +125,7 @@ const createCategory = async (req, res) => {
     let imageData = {};
     if (req.file) {
       imageData = {
-        url: `${process.env.API_DOMAIN}/uploads/${req.file.path}`,
+        url: `${process.env.API_DOMAIN}/${req.file.path}`,
         alt: req.file.originalname,
       };
     }
@@ -206,7 +206,7 @@ const updateCategory = async (req, res) => {
     let imageData = {};
     if (req.file) {
       imageData = {
-        url: `${process.env.API_DOMAIN}/uploads/${req.file.path}`,
+        url: `${process.env.API_DOMAIN}/${req.file.path}`,
         alt: req.file.originalname,
       };
 

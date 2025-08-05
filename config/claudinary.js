@@ -3,7 +3,7 @@
 // =============================================
 const cloudinary = require('cloudinary').v2;
 const multer = require('multer');
-const { CloudinaryStorage } = require('multer-storage-cloudinary');
+// const { CloudinaryStorage } = require('multer-storage-cloudinary');
 
 // Configure Cloudinary
 cloudinary.config({
@@ -28,19 +28,7 @@ const fileFilter = (req, file, cb) => {
 
 // Product images storage configuration
 const createCloudinaryStorage = (folder, transformations = []) => {
-  return new CloudinaryStorage({
-    cloudinary: cloudinary,
-    params: {
-      folder: folder,
-      allowed_formats: ['jpg', 'jpeg', 'png', 'gif', 'webp', 'mp4', 'mov', 'avi', 'mkv'],
-      resource_type: 'auto',
-      transformation: transformations.length > 0 ? transformations : [
-        { width: 1200, height: 900, crop: 'limit' },
-        { quality: 'auto:good' },
-        { fetch_format: 'auto' }
-      ]
-    }
-  });
+  return ;
 };
 
 // Different storage configurations for different use cases
