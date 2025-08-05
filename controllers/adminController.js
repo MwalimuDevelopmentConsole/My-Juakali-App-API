@@ -108,96 +108,6 @@ const registerAdmin = async (req, res) => {
   }
 };
 
-// @desc    Login admin
-// @route   POST /api/admins/login
-// @access  Public
-const loginAdmin = async (req, res) => {
-  try {
-    const { email, password } = req.body;
-
-    if (!email || !password) {
-      return res.status(400).json({
-        success: false,
-        message: "Email and password are required",
-      });
-    }
-
-    const admin = await Admin.findOne({ email }).select("+password");
-
-    if (!admin) {
-      return res.status(401).json({
-        success: false,
-        message: "Invalid credentials",
-      });
-    }
-
-    if (!admin.isActive || admin.status !== "active") {
-      return res.status(403).json({
-        success: false,
-        message: "Admin account is not active",
-      });
-    }
-
-    if (admin.isLocked) {
-      return res.status(423).json({
-        success: false,
-        message: "Account is temporarily locked",
-      });
-    }
-
-    const isPasswordCorrect = await admin.comparePassword(password);
-
-    if (!isPasswordCorrect) {
-      admin.security.loginAttempts += 1;
-      if (admin.security.loginAttempts >= 5) {
-        admin.security.lockUntil = new Date(Date.now() + 30 * 60 * 1000); // 30 minutes
-      }
-      await admin.save();
-
-      return res.status(401).json({
-        success: false,
-        message: "Invalid credentials",
-      });
-    }
-
-    // Reset login attempts
-    admin.security.loginAttempts = 0;
-    admin.security.lockUntil = undefined;
-    admin.activity.loginCount += 1;
-    admin.security.lastLogin = new Date();
-    admin.activity.lastActive = new Date();
-
-    await admin.save();
-
-    const token = jwt.sign(
-      { id: admin._id, userType: "admin", role: admin.role },
-      process.env.JWT_SECRET,
-      { expiresIn: "8h" }
-    );
-
-    res.status(200).json({
-      success: true,
-      message: "Login successful",
-      token,
-      admin: {
-        id: admin._id,
-        email: admin.email,
-        firstName: admin.firstName,
-        lastName: admin.lastName,
-        role: admin.role,
-        department: admin.department,
-        permissions: admin.permissions,
-      },
-    });
-  } catch (error) {
-    res.status(500).json({
-      success: false,
-      message: "Server Error",
-      error: error.message,
-    });
-  }
-};
-
 // @desc    Get admin dashboard stats
 // @route   GET /api/admins/dashboard
 // @access  Admin only
@@ -463,7 +373,6 @@ const updateReviewStatus = async (req, res) => {
 
 module.exports = {
   registerAdmin,
-  loginAdmin,
   getAdminDashboard,
   updateSellerStatus,
   updateProductStatus,
