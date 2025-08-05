@@ -291,7 +291,8 @@ const getProducts = async (req, res) => {
       case "rating":
         sortStage = { "ratings.average": -1, finalScore: -1 };
         break;
-      default: // relevance
+      default:
+        // relevance
         sortStage = { finalScore: -1, createdAt: -1 };
     }
 
@@ -498,6 +499,8 @@ const createProduct = async (req, res) => {
       inventory,
       serviceInfo,
     } = req.body;
+    const parsedPricing = JSON.parse(pricing);
+    console.log(secondaryCategories);
 
     // Validation
     if (
@@ -505,7 +508,7 @@ const createProduct = async (req, res) => {
       !description ||
       !type ||
       !primaryCategory ||
-      !pricing.basePrice
+      !parsedPricing.basePrice
     ) {
       return res.status(400).json({
         success: false,
@@ -557,8 +560,8 @@ const createProduct = async (req, res) => {
       condition: condition || "new",
       seller: sellerId,
       primaryCategory,
-      secondaryCategories: secondaryCategories || [],
-      pricing,
+      secondaryCategories: JSON.parse(secondaryCategories) || [],
+      pricing: parsedPricing,
       location: {
         ...location,
         county: seller.location.county,
@@ -588,6 +591,7 @@ const createProduct = async (req, res) => {
       product,
     });
   } catch (error) {
+    console.log(error);
     res.status(500).json({
       success: false,
       message: "Server Error",
@@ -637,10 +641,9 @@ const updateProduct = async (req, res) => {
 
     // Handle image uploads (if any new images)
     if (req.files && req.files.length > 0) {
-
       // Build new image data using local file paths
       const newImages = req.files.map((file, index) => ({
-        url: `${process.env.API_DOMAIN}/${file.path}`, 
+        url: `${process.env.API_DOMAIN}/${file.path}`,
         publicId: null,
         alt: file.originalname, // Use original filename
         isPrimary: index === 0, // First image is primary
