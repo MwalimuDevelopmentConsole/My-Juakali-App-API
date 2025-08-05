@@ -125,34 +125,6 @@ const productSchema = new Schema({
     }]
   },
   
-  // Location
-  location: {
-    county: String,
-    subcounty: String,
-    ward: String,
-    specificLocation: String,
-    coordinates: {
-      type: {
-        type: String,
-        enum: ['Point'],
-        default: 'Point'
-      },
-      coordinates: {
-        type: [Number], // [longitude, latitude]
-        index: '2dsphere'
-      }
-    },
-    deliveryRadius: Number, // in kilometers
-    pickupAvailable: {
-      type: Boolean,
-      default: true
-    },
-    deliveryAvailable: {
-      type: Boolean,
-      default: false
-    }
-  },
-  
   // Dynamic Fields (based on category)
   dynamicFields: Schema.Types.Mixed, // Flexible structure for category-specific fields
   
