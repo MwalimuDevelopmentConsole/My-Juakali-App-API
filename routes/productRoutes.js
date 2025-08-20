@@ -22,10 +22,9 @@ const {
   searchProducts,
 } = require("../controllers/productsController");
 
-
 // Import middleware
 const { authenticateToken, authorize } = require("../middleware/auth");
-const  Product  = require("../models/Product");
+const Product = require("../models/Product");
 const { handleMulterError, upload } = require("../config/multer");
 
 // =============================================
@@ -361,11 +360,11 @@ router.get("/products/category/:categoryId", async (req, res) => {
 // @route   GET /api/products/search/:query
 // @desc    Get products by search query
 // @access  Public
-router.get("/products/search/:query", async (req, res) => {
+router.get("/search/:query", async (req, res) => {
   try {
     const { query } = req.params;
     req.query.search = query;
-    await getProducts(req, res);
+    await searchProducts(req, res);
   } catch (error) {
     res.status(500).json({
       success: false,
@@ -378,9 +377,9 @@ router.get("/products/search/:query", async (req, res) => {
 // @route   GET /api/products/trending/today
 // @desc    Get trending products
 // @access  Public
-router.get("/products/trending/today", async (req, res) => {
+router.get("/trending/today", async (req, res) => {
   try {
-    const { limit = 20 } = req.query;
+    const { limit = 25 } = req.query;
     const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
     const trendingProducts = await Product.find({

@@ -42,7 +42,7 @@ const productSchema = new Schema({
   // Seller Information
   seller: {
     type: Schema.Types.ObjectId,
-    ref: 'User',
+    ref: 'Seller',
     required: true,
     index: true
   },

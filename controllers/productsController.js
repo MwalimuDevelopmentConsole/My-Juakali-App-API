@@ -27,6 +27,7 @@ const getProducts = async (req, res) => {
       infiniteScroll = false,
       ...dynamicFilters // Any other filters based on category
     } = req.query;
+    console.log(category);
 
     // Build base filter
     let filter = {
@@ -390,7 +391,7 @@ const getProduct = async (req, res) => {
       .populate({
         path: "seller",
         select:
-          "firstName lastName businessInfo ratings verification location socialLinks",
+          "firstName lastName businessInfo status ratings verification location socialLinks",
         populate: {
           path: "currentSubscription",
           populate: {
@@ -400,7 +401,8 @@ const getProduct = async (req, res) => {
         },
       })
       .populate("primaryCategory")
-      .populate("secondaryCategories");
+      .populate("secondaryCategories")
+      .exec();
 
     if (!product) {
       return res.status(404).json({
@@ -410,12 +412,7 @@ const getProduct = async (req, res) => {
     }
 
     // Check if product is active and seller is active
-    if (
-      product.status !== "active" ||
-      !product.seller ||
-      product.seller.status !== "active" ||
-      !product.seller.isActive
-    ) {
+    if (product.status !== "active" || product.seller.status !== "active") {
       return res.status(404).json({
         success: false,
         message: "Product not available",
@@ -809,7 +806,9 @@ const getSellerProducts = async (req, res) => {
 // @access  Public
 const searchProducts = async (req, res) => {
   try {
-    const { query, limit = 5 } = req.query;
+    const { limit = 5 } = req.query;
+    const query = req.query.search;
+    console.log(req.query);
 
     // Validation
     if (!query || query.trim().length < 2) {
@@ -852,7 +851,7 @@ const searchProducts = async (req, res) => {
       {
         $match: {
           "sellerInfo.status": "active",
-          "sellerInfo.isActive": true,
+          // "sellerInfo.isActive": true,
         },
       },
 
