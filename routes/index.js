@@ -10,6 +10,10 @@ const categoryRoutes = require("./categoryRoutes");
 const authGoogleRoutes = require("./authGoogleRoutes");
 const adminRoutes = require("./adminRoutes");
 const productRoutes = require("./productRoutes");
+const supportRoutes = require("./supportRoutes");
+const chatRoutes = require("./chatRoutes");
+const notificationRoutes = require("./notificationRoutes");
+
 
 // Health check endpoint
 router.get("/health", (req, res) => {
@@ -29,6 +33,9 @@ router.use("/categories", categoryRoutes);
 router.use("/auth/google", authGoogleRoutes);
 router.use("/admin", adminRoutes);
 router.use("/products", productRoutes);
+router.use("/support", supportRoutes);
+router.use("/chat", chatRoutes);
+router.use("/notifications", notificationRoutes);
 
 // 404 handler for API routes
 router.use("*", (req, res) => {
