@@ -1,76 +1,132 @@
-const mongoose = require('mongoose');
+const { default: mongoose } = require("mongoose");
 const Schema = mongoose.Schema;
 
-// NOTIFICATIONS MODEL
+
 const notificationSchema = new Schema({
   recipient: {
-    type: Schema.Types.ObjectId,
-    ref: 'User',
-    required: true,
-    index: true
+    userType: {
+      type: String,
+      enum: ['Buyer', 'Seller', 'Admin'],
+      required: true,
+      index: true
+    },
+    userId: {
+      type: Schema.Types.ObjectId,
+      required: true,
+      refPath: 'recipient.userType',
+      index: true
+    }
   },
-  
+
   // Notification content
   type: {
     type: String,
-    enum: ['message', 'review', 'order', 'subscription', 'system', 'promotion', 'inquiry'],
+    enum: [
+      'message', 
+      'support_ticket', 
+      'support_response',
+      'system_alert', 
+      'product_inquiry',
+      'verification_update',
+      'subscription_reminder'
+    ],
     required: true,
     index: true
   },
+
+  template: {
+    type: String,
+    required: true // e.g., 'new_message_buyer', 'support_ticket_created'
+  },
+
   title: {
     type: String,
     required: true
   },
+
   message: {
     type: String,
     required: true
   },
-  
-  // Related entities
-  relatedUser: {
-    type: Schema.Types.ObjectId,
-    ref: 'User'
+
+  // Template data for dynamic content
+  data: Schema.Types.Mixed,
+
+  // Related entities (polymorphic)
+  relatedEntities: [{
+    entityType: {
+      type: String,
+      enum: ['Conversation', 'Message', 'SupportTicket', 'Product', 'Buyer', 'Seller', 'Admin']
+    },
+    entityId: {
+      type: Schema.Types.ObjectId,
+      refPath: 'relatedEntities.entityType'
+    }
+  }],
+
+  // Delivery channels
+  channels: [{
+    type: String,
+    enum: ['push', 'email', 'sms'],
+    required: true
+  }],
+
+  priority: {
+    type: String,
+    enum: ['low', 'medium', 'high', 'urgent'],
+    default: 'medium',
+    index: true
   },
-  relatedProduct: {
-    type: Schema.Types.ObjectId,
-    ref: 'Product'
-  },
-  relatedOrder: {
-    type: Schema.Types.ObjectId,
-    ref: 'Order'
-  },
-  
-  // Action data
-  actionUrl: String,
-  actionData: Schema.Types.Mixed,
-  
+
   // Status
   isRead: {
     type: Boolean,
-    default: false
+    default: false,
+    index: true
   },
   readAt: Date,
-  
-  // Delivery
-  deliveryMethods: {
+
+  // Delivery tracking
+  delivery: {
     push: {
       sent: { type: Boolean, default: false },
-      sentAt: Date
+      sentAt: Date,
+      delivered: { type: Boolean, default: false },
+      deliveredAt: Date,
+      error: String
     },
     email: {
       sent: { type: Boolean, default: false },
-      sentAt: Date
+      sentAt: Date,
+      delivered: { type: Boolean, default: false },
+      deliveredAt: Date,
+      opened: { type: Boolean, default: false },
+      openedAt: Date,
+      error: String
     },
     sms: {
       sent: { type: Boolean, default: false },
-      sentAt: Date
+      sentAt: Date,
+      delivered: { type: Boolean, default: false },
+      deliveredAt: Date,
+      error: String
     }
-  }
+  },
+
+  // Action data
+  actionUrl: String,
+  actionData: Schema.Types.Mixed,
+
+  // Expiry
+  expiresAt: Date
 }, {
   timestamps: true
 });
 
-notificationSchema.index({ recipient: 1, isRead: 1, createdAt: -1 });
+// Indexes
+notificationSchema.index({ 'recipient.userId': 1, 'recipient.userType': 1, isRead: 1, createdAt: -1 });
 notificationSchema.index({ type: 1, createdAt: -1 });
+notificationSchema.index({ priority: 1, isRead: 1 });
+notificationSchema.index({ expiresAt: 1 }, { expireAfterSeconds: 0 });
 
 module.exports = mongoose.model('Notification', notificationSchema);

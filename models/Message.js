@@ -1,7 +1,7 @@
-const mongoose = require('mongoose');
+const { default: mongoose } = require("mongoose");
 const Schema = mongoose.Schema;
 
-// MESSAGES MODEL
+
 const messageSchema = new Schema({
   conversation: {
     type: Schema.Types.ObjectId,
@@ -9,37 +9,56 @@ const messageSchema = new Schema({
     required: true,
     index: true
   },
+
   sender: {
-    type: Schema.Types.ObjectId,
-    // ref: 'User',
-    required: true,
-    index: true
+    userType: {
+      type: String,
+      enum: ['Buyer', 'Seller', 'Admin'],
+      required: true
+    },
+    userId: {
+      type: Schema.Types.ObjectId,
+      required: true,
+      refPath: 'sender.userType'
+    }
   },
-  recipient: {
-    type: Schema.Types.ObjectId,
-    // ref: 'User',
-    required: true,
-    index: true
-  },
-  
+
+  recipients: [{
+    userType: {
+      type: String,
+      enum: ['Buyer', 'Seller', 'Admin'],
+      required: true
+    },
+    userId: {
+      type: Schema.Types.ObjectId,
+      required: true,
+      refPath: 'recipients.userType'
+    },
+    deliveredAt: Date,
+    readAt: Date
+  }],
+
   // Message content
   messageType: {
     type: String,
-    enum: ['text', 'image', 'file', 'location', 'product_share', 'offer'],
+    enum: ['text', 'image', 'file', 'location', 'product_share', 'offer', 'system'],
     default: 'text'
   },
+
   content: {
     text: String,
     images: [{
       url: String,
       publicId: String,
-      alt: String
+      alt: String,
+      size: Number
     }],
     files: [{
       url: String,
       name: String,
       size: Number,
-      type: String
+      type: String,
+      publicId: String
     }],
     location: {
       coordinates: [Number],
@@ -49,24 +68,35 @@ const messageSchema = new Schema({
       amount: Number,
       currency: String,
       description: String,
-      expiresAt: Date
+      expiresAt: Date,
+      status: {
+        type: String,
+        enum: ['pending', 'accepted', 'rejected', 'expired'],
+        default: 'pending'
+      }
+    },
+    system: {
+      type: {
+        type: String,
+        enum: ['user_joined', 'user_left', 'conversation_created', 'offer_made']
+      },
+      data: Schema.Types.Mixed
     }
   },
-  
-  // Related product (if applicable)
+
+  // Related entities
   relatedProduct: {
     type: Schema.Types.ObjectId,
     ref: 'Product'
   },
-  
-  // Status
+
+  // Message status
   status: {
     type: String,
-    enum: ['sent', 'delivered', 'read'],
+    enum: ['sent', 'delivered', 'read', 'failed'],
     default: 'sent'
   },
-  readAt: Date,
-  
+
   // Message flags
   isEdited: {
     type: Boolean,
@@ -78,18 +108,28 @@ const messageSchema = new Schema({
     default: false
   },
   deletedAt: Date,
-  
+
   // Reply reference
   replyTo: {
     type: Schema.Types.ObjectId,
     ref: 'Message'
+  },
+
+  // Message metadata
+  metadata: {
+    ipAddress: String,
+    userAgent: String,
+    platform: String
   }
 }, {
   timestamps: true
 });
 
+// Indexes
 messageSchema.index({ conversation: 1, createdAt: -1 });
-messageSchema.index({ sender: 1, recipient: 1 });
-messageSchema.index({ status: 1, readAt: 1 });
+messageSchema.index({ 'sender.userId': 1, 'sender.userType': 1 });
+messageSchema.index({ 'recipients.userId': 1, 'recipients.userType': 1 });
+messageSchema.index({ status: 1 });
+messageSchema.index({ messageType: 1 });
 
-const Message = mongoose.model('Message', messageSchema);
+module.exports = mongoose.model('Message', messageSchema);

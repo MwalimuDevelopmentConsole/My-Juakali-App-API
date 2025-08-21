@@ -1,11 +1,76 @@
 const Category = require("../models/Category");
 const cloudinary = require("cloudinary").v2;
 
-// @desc    Get all categories with subcategories
+// @desc Get all categories with nested subcategories
 const getCategories = async (req, res) => {
   try {
-    const { level, parent, includeInactive = false } = req.query;
+    const { level, parent, includeInactive = false, nested = true } = req.query;
 
+    // If specific parent or level is requested, use original logic
+    if (parent || (level !== undefined && level !== "0")) {
+      return getSingleLevelCategories(req, res);
+    }
+
+    // For nested response (default behavior)
+    if (nested === "true" || nested === true) {
+      return getNestedCategories(req, res, includeInactive);
+    }
+
+    // Fallback to original flat structure
+    return getSingleLevelCategories(req, res);
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Server Error",
+      error: error.message,
+    });
+  }
+};
+
+// Get categories in nested structure
+const getNestedCategories = async (req, res, includeInactive) => {
+  try {
+    let filter = {
+      parentCategory: null, // Get only parent categories
+    };
+
+    if (!includeInactive) {
+      filter.isActive = true;
+    }
+
+    // Recursively populate subcategories at all levels
+    const categories = await Category.find(filter)
+      .populate({
+        path: "subcategories",
+        match: includeInactive ? {} : { isActive: true },
+        options: { sort: { sortOrder: 1, name: 1 } },
+        populate: {
+          path: "subcategories",
+          match: includeInactive ? {} : { isActive: true },
+          options: { sort: { sortOrder: 1, name: 1 } },
+          populate: {
+            path: "subcategories",
+            match: includeInactive ? {} : { isActive: true },
+            options: { sort: { sortOrder: 1, name: 1 } },
+          },
+        },
+      })
+      .sort({ sortOrder: 1, name: 1 });
+
+    res.status(200).json({
+      success: true,
+      count: categories.length,
+      categories,
+    });
+  } catch (error) {
+    throw error;
+  }
+};
+
+// Get categories in flat structure (original logic)
+const getSingleLevelCategories = async (req, res) => {
+  try {
+    const { level, parent, includeInactive = false } = req.query;
     let filter = {};
 
     // Filter by level (0 = parent, 1 = subcategory, etc.)
@@ -34,6 +99,57 @@ const getCategories = async (req, res) => {
       success: true,
       count: categories.length,
       categories,
+    });
+  } catch (error) {
+    throw error;
+  }
+};
+
+// Alternative approach: Build nested structure manually for more control
+const getCategoriesWithManualNesting = async (req, res) => {
+  try {
+    const { includeInactive = false } = req.query;
+
+    let filter = {};
+    if (!includeInactive) {
+      filter.isActive = true;
+    }
+
+    // Get all categories at once
+    const allCategories = await Category.find(filter)
+      .sort({ sortOrder: 1, name: 1 })
+      .lean(); // Use lean for better performance
+
+    // Build nested structure
+    const categoryMap = new Map();
+    const rootCategories = [];
+
+    // First pass: create map and identify root categories
+    allCategories.forEach((category) => {
+      categoryMap.set(category._id.toString(), {
+        ...category,
+        subcategories: [],
+      });
+
+      if (!category.parentCategory) {
+        rootCategories.push(categoryMap.get(category._id.toString()));
+      }
+    });
+
+    // Second pass: build parent-child relationships
+    allCategories.forEach((category) => {
+      if (category.parentCategory) {
+        const parent = categoryMap.get(category.parentCategory.toString());
+        if (parent) {
+          parent.subcategories.push(categoryMap.get(category._id.toString()));
+        }
+      }
+    });
+
+    res.status(200).json({
+      success: true,
+      count: rootCategories.length,
+      categories: rootCategories,
     });
   } catch (error) {
     res.status(500).json({
