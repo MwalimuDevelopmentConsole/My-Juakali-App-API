@@ -25,6 +25,7 @@ const {
 // Import middleware
 const { authenticateToken, authorize } = require("../middleware/auth");
 const Product = require("../models/Product");
+const FavoritedProduct = require("../models/FavoritedProduct");
 const { handleMulterError, upload } = require("../config/multer");
 
 // =============================================
@@ -87,7 +88,7 @@ router.delete(
 // @route   GET /api/products/seller/:sellerId
 // @desc    Get products by specific seller
 // @access  Public
-router.get("/products/seller/:sellerId", getSellerProducts);
+router.get("/seller/:sellerId", getSellerProducts);
 
 // =============================================
 // IMAGE MANAGEMENT ROUTES
@@ -441,27 +442,250 @@ router.get("/products/featured", async (req, res) => {
 // @route   POST /api/products/:id/favorite
 // @desc    Add product to favorites
 // @access  Authenticated users
-router.post("/:id/favorite", authenticateToken, async (req, res) => {
-  try {
-    const { id } = req.params;
+// POST /:id/favorite/:action/:buyerId
+router.post(
+  "/:id/favorite/:action/:buyerId",
+  authenticateToken,
+  async (req, res) => {
+    try {
+      const { id: productId, action, buyerId } = req.params;
 
-    const product = await Product.findByIdAndUpdate(
-      id,
-      { $inc: { "stats.favorites": 1 } },
-      { new: true }
-    );
+      // Verify the buyer is the authenticated user (security check)
+      if (req.user.id !== buyerId) {
+        return res.status(403).json({
+          success: false,
+          message: "Unauthorized access",
+        });
+      }
 
-    if (!product) {
-      return res.status(404).json({
+      const product = await Product.findById(productId)
+        .populate("seller", "firstName lastName businessInfo.businessName")
+        .select("title pricing.basePrice pricing.currency seller");
+
+      if (!product) {
+        return res.status(404).json({
+          success: false,
+          message: "Product not found",
+        });
+      }
+
+      if (action === "like") {
+        // Check if already favorited
+        const existingFavorite = await FavoritedProduct.findOne({
+          buyerId,
+          productId,
+        });
+
+        if (existingFavorite) {
+          return res.status(200).json({
+            success: true,
+            message: "Product already liked",
+            alreadyLiked: true,
+            favoritesCount: product.stats.favorites,
+          });
+        }
+
+        // Create favorite record
+        const favoriteData = {
+          buyerId,
+          productId,
+          productSnapshot: {
+            title: product.title,
+            price: product.pricing.basePrice,
+            currency: product.pricing.currency,
+            primaryImage: "",
+            sellerName:
+              product.seller?.businessInfo?.businessName ||
+              `${product.seller?.firstName} ${product.seller?.lastName}` ||
+              "Unknown Seller",
+          },
+        };
+
+        await FavoritedProduct.create(favoriteData);
+
+        // Increment product favorites count
+        await Product.findByIdAndUpdate(
+          productId,
+          { $inc: { "stats.favorites": 1 } },
+          { new: true }
+        );
+
+        res.status(200).json({
+          success: true,
+          message: "Product added to favorites",
+          alreadyLiked: false,
+          favoritesCount: product.stats.favorites + 1,
+        });
+      } else if (action === "dislike") {
+        // Remove favorite record
+        const deletedFavorite = await FavoritedProduct.findOneAndDelete({
+          buyerId,
+          productId,
+        });
+
+        if (!deletedFavorite) {
+          return res.status(404).json({
+            success: false,
+            message: "Favorite not found",
+          });
+        }
+
+        // Note: We don't decrement the product favorites count as requested
+        res.status(200).json({
+          success: true,
+          message: "Product removed from favorites",
+          favoritesCount: product.stats.favorites,
+        });
+      } else {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid action. Use 'like' or 'dislike'",
+        });
+      }
+    } catch (error) {
+      console.log(error);
+      // Handle duplicate key error (if user somehow tries to like twice)
+      if (error.code === 11000) {
+        return res.status(200).json({
+          success: true,
+          message: "Product already liked",
+          alreadyLiked: true,
+        });
+      }
+
+      res.status(500).json({
         success: false,
-        message: "Product not found",
+        message: "Server Error",
+        error: error.message,
       });
     }
+  }
+);
+
+// GET /favorites/:buyerId - Get user's favorite products
+router.get("/favorites/:buyerId", async (req, res) => {
+  try {
+    const { buyerId } = req.params;
+    const { page = 1, limit = 15 } = req.query;
+
+    const pageNum = parseInt(page);
+    const limitNum = parseInt(limit);
+    const skip = (pageNum - 1) * limitNum;
+
+    // Get total count
+    const totalFavorites = await FavoritedProduct.countDocuments({ buyerId });
+
+    // Get favorites with populated product data
+    const favorites = await FavoritedProduct.find({ buyerId })
+      .populate({
+        path: "productId",
+      })
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limitNum);
+
+    // Filter out favorites where product no longer exists or is not active
+    const validFavorites = favorites.filter(
+      (fav) => fav.productId && fav.productId.status === "active"
+    );
+
+    // Clean up invalid favorites in background (optional)
+    const invalidFavorites = favorites.filter(
+      (fav) => !fav.productId || fav.productId.status !== "active"
+    );
+
+    if (invalidFavorites.length > 0) {
+      // Remove invalid favorites in background
+      const invalidIds = invalidFavorites.map((fav) => fav._id);
+      FavoritedProduct.deleteMany({ _id: { $in: invalidIds } }).catch(
+        console.error
+      );
+    }
+
+    // Format response
+    const products = validFavorites.map((favorite) => ({
+      ...favorite.productId.toObject(),
+      favoritedAt: favorite.createdAt,
+    }));
+
+    const totalPages = Math.ceil(totalFavorites / limitNum);
 
     res.status(200).json({
       success: true,
-      message: "Product added to favorites",
-      favoritesCount: product.stats.favorites,
+      products,
+      totalProducts: totalFavorites,
+      currentPage: pageNum,
+      totalPages,
+      hasNextPage: pageNum < totalPages,
+      hasPrevPage: pageNum > 1,
+      pagination: {
+        currentPage: pageNum,
+        totalPages,
+        totalItems: totalFavorites,
+        itemsPerPage: limitNum,
+        hasNextPage: pageNum < totalPages,
+        hasPrevPage: pageNum > 1,
+      },
+    });
+  } catch (error) {
+    console.log(error);
+    res.status(500).json({
+      success: false,
+      message: "Server Error",
+      error: error.message,
+    });
+  }
+});
+
+// GET /favorites/:buyerId/ids - Get only favorite product IDs (for localStorage sync)
+router.get("/favorites/:buyerId/ids", async (req, res) => {
+  try {
+    const { buyerId } = req.params;
+
+    if (req.user.id !== buyerId) {
+      return res.status(403).json({
+        success: false,
+        message: "Unauthorized access",
+      });
+    }
+
+    const favorites = await FavoritedProduct.find({ buyerId }).select(
+      "productId"
+    );
+    const productIds = favorites.map((fav) => fav.productId.toString());
+
+    res.status(200).json({
+      success: true,
+      productIds,
+      count: productIds.length,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Server Error",
+      error: error.message,
+    });
+  }
+});
+// GET /favorites/:buyerId/count - Get user's favorites count
+router.get("/favorites/:buyerId/count", authenticateToken, async (req, res) => {
+  try {
+    const { buyerId } = req.params;
+
+    // Verify the buyer is the authenticated user (security check)
+    if (req.user.id !== buyerId) {
+      return res.status(403).json({
+        success: false,
+        message: "Unauthorized access",
+      });
+    }
+
+    // Get total count of favorites for this buyer
+    const favoritesCount = await FavoritedProduct.countDocuments({ buyerId });
+
+    res.status(200).json({
+      success: true,
+      count: favoritesCount,
     });
   } catch (error) {
     res.status(500).json({

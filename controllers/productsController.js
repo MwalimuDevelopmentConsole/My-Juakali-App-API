@@ -755,7 +755,7 @@ const deleteProduct = async (req, res) => {
 const getSellerProducts = async (req, res) => {
   try {
     const { sellerId } = req.params;
-    const { page = 1, limit = 20, status = "active" } = req.query;
+    const { page = 1, limit = 40, status = "active" } = req.query;
 
     const pageNum = parseInt(page);
     const limitNum = parseInt(limit);
@@ -769,6 +769,8 @@ const getSellerProducts = async (req, res) => {
     } else if (status) {
       filter.status = status;
     }
+
+    // get seller info aswell for website display
 
     const products = await Product.find(filter)
       .populate("primaryCategory", "name")

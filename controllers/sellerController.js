@@ -22,7 +22,7 @@ const registerSeller = async (req, res) => {
       referralCode,
     } = req.body;
 
-    console.log(req.body)
+    console.log(req.body);
 
     // Validation
     if (
@@ -191,7 +191,7 @@ const registerSeller = async (req, res) => {
       },
     });
   } catch (error) {
-    console.log(error)
+    console.log(error);
     res.status(500).json({
       success: false,
       message: "Server Error",
@@ -463,10 +463,192 @@ const getSellerDashboard = async (req, res) => {
   }
 };
 
+const getSellerOverview = async (req, res) => {
+  try {
+    const { sellerId } = req.params;
+
+    const seller = await Seller.findById(sellerId)
+      .select(
+        `
+        firstName 
+        lastName 
+        avatar 
+        bio 
+        businessInfo.businessName 
+        businessInfo.businessType 
+        businessInfo.specialties 
+        businessInfo.yearsOfExperience 
+        businessInfo.employees 
+        businessInfo.workingHours
+        location.county 
+        location.subcounty 
+        location.ward 
+        location.landmark
+        verification.email.verified 
+        verification.phone.verified 
+        verification.identity.verified 
+        verification.business.verified
+        ratings.average 
+        ratings.count 
+        ratings.breakdown
+        activity.profileViews 
+        activity.totalProducts 
+        activity.activeProducts
+        isActive 
+        status 
+        portfolio
+        socialLinks
+        preferences.privacy
+        phone
+        createdAt
+      `
+      )
+      .populate({
+        path: "currentSubscription",
+        select: "plan status",
+        populate: {
+          path: "plan",
+          select: "name planType features badge",
+        },
+      });
+
+    if (!seller) {
+      return res.status(404).json({
+        success: false,
+        message: "Seller not found",
+      });
+    }
+
+    // Check if seller is active and not banned
+    if (
+      !seller.isActive ||
+      seller.status === "banned" ||
+      seller.status === "suspended"
+    ) {
+      return res.status(404).json({
+        success: false,
+        message: "Seller profile not available",
+      });
+    }
+
+    // Increment profile views count
+    await Seller.findByIdAndUpdate(
+      sellerId,
+      { $inc: { "activity.profileViews": 1 } },
+      { new: false } // We don't need the updated document returned
+    );
+
+    // Create response object respecting privacy settings
+    const sellerOverview = {
+      _id: seller._id,
+      firstName: seller.firstName,
+      lastName: seller.lastName,
+      fullName: seller.fullName, // Virtual field
+      avatar: seller.avatar,
+      bio: seller.bio,
+
+      // Business Information
+      businessInfo: {
+        businessName: seller.businessInfo.businessName,
+        businessType: seller.businessInfo.businessType,
+        specialties: seller.businessInfo.specialties,
+        yearsOfExperience: seller.businessInfo.yearsOfExperience,
+        employees: seller.businessInfo.employees,
+        // Only show working hours if privacy allows
+        workingHours:
+          seller.preferences?.privacy?.showBusinessHours !== false
+            ? seller.businessInfo.workingHours
+            : null,
+      },
+
+      // Location (respect privacy settings)
+      location:
+        seller.preferences?.privacy?.showLocation !== false
+          ? {
+              county: seller.location.county,
+              subcounty: seller.location.subcounty,
+              ward: seller.location.ward,
+              landmark: seller.location.landmark,
+            }
+          : {
+              county: seller.location.county, // Always show county for basic location context
+              subcounty: seller.location.subcounty, // Show subcounty for general area
+            },
+
+      // Phone (respect privacy settings)
+      phone:
+        seller.preferences?.privacy?.showPhone !== false ? seller.phone : null,
+
+      // Verification & Trust
+      verification: {
+        email: seller.verification.email.verified,
+        phone: seller.verification.phone.verified,
+        identity: seller.verification.identity.verified,
+        business: seller.verification.business.verified,
+      },
+      verificationScore: seller.verificationScore, // Virtual field
+
+      // Ratings & Reviews
+      ratings: {
+        average: seller.ratings.average,
+        count: seller.ratings.count,
+        breakdown: seller.ratings.breakdown,
+      },
+
+      // Public Activity Stats (increment the displayed count to reflect the new view)
+      stats: {
+        profileViews: seller.activity.profileViews + 1, // Show incremented count
+        totalProducts: seller.activity.totalProducts,
+        activeProducts: seller.activity.activeProducts,
+        memberSince: seller.createdAt,
+      },
+
+      // Status
+      isActive: seller.isActive,
+      status: seller.status,
+      isLocked: seller.isLocked, // Virtual field
+
+      // Portfolio (only featured or limit to recent)
+      portfolio:
+        seller.portfolio?.filter((item) => item.featured) ||
+        seller.portfolio?.slice(0, 6) ||
+        [], // Show featured or first 6
+
+      // Social Links
+      socialLinks: seller.socialLinks,
+
+      // Subscription (for badge display)
+      subscription: seller.currentSubscription
+        ? {
+            plan: seller.currentSubscription.plan,
+            status: seller.currentSubscription.status,
+          }
+        : null,
+
+      // Allow direct contact (for showing contact buttons)
+      allowDirectContact:
+        seller.preferences?.privacy?.allowDirectContact !== false,
+    };
+
+    res.status(200).json({
+      success: true,
+      seller: sellerOverview,
+    });
+  } catch (error) {
+    console.error("Error fetching seller overview:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server Error",
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   registerSeller,
   getSellerProfile,
   updateSellerProfile,
   uploadVerificationDocuments,
   getSellerDashboard,
+  getSellerOverview
 };
