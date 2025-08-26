@@ -57,7 +57,7 @@ router.get("/:id", getProduct);
 router.post(
   "/",
   authenticateToken,
-  authorize(["seller"]),
+  authorize(["seller", "admin", "super_admin"]),
   upload.array("images", 15),
   handleMulterError,
   createProduct

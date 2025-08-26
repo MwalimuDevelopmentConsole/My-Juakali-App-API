@@ -12,14 +12,17 @@ const {
   handleSupportTyping,
   handleSocketError,
   validateSocketAuth,
-  createRateLimit
-} = require('../utils/socketHelpers');
-
-const { validateUser } = require('../utils/fpHelpers');
+  createRateLimit,
+  getConversationRoom,
+  getUserRoom,
+  getMessagePreview,
+} = require("../utils/socketHelpers");
+const jwt = require("jsonwebtoken");
+const { validateUser } = require("../utils/fpHelpers");
 
 // Create rate limiters for different events
 const messageRateLimit = createRateLimit(30, 60000); // 30 messages per minute
-const typingRateLimit = createRateLimit(60, 60000);  // 60 typing events per minute
+const typingRateLimit = createRateLimit(60, 60000); // 60 typing events per minute
 const joinRoomRateLimit = createRateLimit(100, 60000); // 100 room joins per minute
 
 // ============ SOCKET CONNECTION MANAGEMENT ============
@@ -35,7 +38,7 @@ const handleConnection = (io) => async (socket) => {
     const { userId, userType, token } = socket.handshake.auth;
 
     if (!userId || !userType) {
-      socket.emit('error', { message: 'Missing authentication data' });
+      socket.emit("error", { message: "Missing authentication data" });
       socket.disconnect();
       return;
     }
@@ -43,7 +46,7 @@ const handleConnection = (io) => async (socket) => {
     // Validate user exists and is active
     const userExists = await validateUser(userType, userId);
     if (!userExists) {
-      socket.emit('error', { message: 'Invalid user credentials' });
+      socket.emit("error", { message: "Invalid user credentials" });
       socket.disconnect();
       return;
     }
@@ -53,25 +56,24 @@ const handleConnection = (io) => async (socket) => {
     const connectionData = initializeSocketConnection(socket, {
       userId,
       userType,
-      userInfo
+      userInfo,
     });
 
     // Join presence room
     joinPresenceRoom(io)(socket);
 
     // Emit successful connection
-    socket.emit('connected', {
-      message: 'Successfully connected to chat server',
+    socket.emit("connected", {
+      message: "Successfully connected to chat server",
       userKey: connectionData.userKey,
-      timestamp: new Date()
+      timestamp: new Date(),
     });
 
     // Set up event handlers
     setupEventHandlers(io, socket);
-
   } catch (error) {
-    console.error('Error handling socket connection:', error);
-    socket.emit('error', { message: 'Connection failed' });
+    console.error("Error handling socket connection:", error);
+    socket.emit("error", { message: "Connection failed" });
     socket.disconnect();
   }
 };
@@ -80,16 +82,18 @@ const handleConnection = (io) => async (socket) => {
  * Get user info for socket connection
  */
 const getUserInfo = async (userType, userId) => {
-  const { getUserModel } = require('../utils/fpHelpers');
+  const { getUserModel } = require("../utils/fpHelpers");
   const UserModel = getUserModel(userType);
-  
-  const user = await UserModel.findById(userId).select('firstName lastName businessInfo.businessName avatar');
-  
+
+  const user = await UserModel.findById(userId).select(
+    "firstName lastName businessInfo.businessName avatar"
+  );
+
   return {
     id: userId,
-    name: user?.firstName || user?.businessInfo?.businessName || 'User',
-    fullName: user?.fullName || user?.businessInfo?.businessName || 'User',
-    avatar: user?.avatar?.url || null
+    name: user?.firstName || user?.businessInfo?.businessName || "User",
+    fullName: user?.fullName || user?.businessInfo?.businessName || "User",
+    avatar: user?.avatar?.url || null,
   };
 };
 
@@ -98,73 +102,78 @@ const getUserInfo = async (userType, userId) => {
  */
 const setupEventHandlers = (io, socket) => {
   // ============ CONVERSATION EVENTS ============
-  
+
   /**
    * Join conversation room
    */
-  socket.on('join_conversation', async (data) => {
+  socket.on("join_conversation", async (data) => {
     try {
       if (!validateSocketAuth(socket)) {
-        return socket.emit('error', { message: 'Not authenticated' });
+        return socket.emit("error", { message: "Not authenticated" });
       }
 
-      if (!joinRoomRateLimit(socket, 'join_conversation')) {
-        return socket.emit('error', { message: 'Rate limit exceeded for joining rooms' });
+      if (!joinRoomRateLimit(socket, "join_conversation")) {
+        return socket.emit("error", {
+          message: "Rate limit exceeded for joining rooms",
+        });
       }
 
       const { conversationId } = data;
-      
+
       if (!conversationId || !/^[0-9a-fA-F]{24}$/.test(conversationId)) {
-        return socket.emit('error', { message: 'Invalid conversation ID' });
+        return socket.emit("error", { message: "Invalid conversation ID" });
       }
 
       // Validate user has access to conversation
-      const { Conversation } = require('../models');
-      const { isParticipant } = require('../utils/fpHelpers');
-      
+      const Conversation = require("../models/Conversation");
+      const { isParticipant } = require("../utils/fpHelpers");
+
       const conversation = await Conversation.findById(conversationId);
-      if (!conversation || !isParticipant(socket.userId, socket.userType)(conversation)) {
-        return socket.emit('error', { message: 'Access denied to conversation' });
+      if (
+        !conversation ||
+        !isParticipant(socket.userId, socket.userType)(conversation)
+      ) {
+        return socket.emit("error", {
+          message: "Access denied to conversation",
+        });
       }
 
       // Join room
       const rooms = joinConversationRoom(io)(socket, conversationId);
-      
-      socket.emit('conversation_joined', {
+
+      socket.emit("conversation_joined", {
         conversationId,
         rooms: [rooms.conversationRoom, rooms.typingRoom],
-        timestamp: new Date()
+        timestamp: new Date(),
       });
-
     } catch (error) {
-      handleSocketError(socket, error, 'join_conversation');
+      handleSocketError(socket, error, "join_conversation");
     }
   });
 
   /**
    * Leave conversation room
    */
-  socket.on('leave_conversation', (data) => {
+  socket.on("leave_conversation", (data) => {
     try {
       if (!validateSocketAuth(socket)) {
-        return socket.emit('error', { message: 'Not authenticated' });
+        return socket.emit("error", { message: "Not authenticated" });
       }
 
       const { conversationId } = data;
-      
+
       if (!conversationId) {
-        return socket.emit('error', { message: 'Conversation ID required' });
+        return socket.emit("error", { message: "Conversation ID required" });
       }
 
       leaveConversationRoom(io)(socket, conversationId);
-      
-      socket.emit('conversation_left', {
-        conversationId,
-        timestamp: new Date()
-      });
 
+      socket.emit("conversation_left", {
+        conversationId,
+        timestamp: new Date(),
+      });
     } catch (error) {
-      handleSocketError(socket, error, 'leave_conversation');
+      handleSocketError(socket, error, "leave_conversation");
     }
   });
 
@@ -173,48 +182,48 @@ const setupEventHandlers = (io, socket) => {
   /**
    * Handle typing start
    */
-  socket.on('typing_start', (data) => {
+  socket.on("typing_start", (data) => {
     try {
       if (!validateSocketAuth(socket)) {
-        return socket.emit('error', { message: 'Not authenticated' });
+        return socket.emit("error", { message: "Not authenticated" });
       }
 
-      if (!typingRateLimit(socket, 'typing_start')) {
-        return socket.emit('error', { message: 'Rate limit exceeded for typing events' });
+      if (!typingRateLimit(socket, "typing_start")) {
+        return socket.emit("error", {
+          message: "Rate limit exceeded for typing events",
+        });
       }
 
       const { conversationId } = data;
-      
+
       if (!conversationId || !/^[0-9a-fA-F]{24}$/.test(conversationId)) {
-        return socket.emit('error', { message: 'Invalid conversation ID' });
+        return socket.emit("error", { message: "Invalid conversation ID" });
       }
 
       handleTypingStart(io)(socket, conversationId);
-
     } catch (error) {
-      handleSocketError(socket, error, 'typing_start');
+      handleSocketError(socket, error, "typing_start");
     }
   });
 
   /**
    * Handle typing stop
    */
-  socket.on('typing_stop', (data) => {
+  socket.on("typing_stop", (data) => {
     try {
       if (!validateSocketAuth(socket)) {
-        return socket.emit('error', { message: 'Not authenticated' });
+        return socket.emit("error", { message: "Not authenticated" });
       }
 
       const { conversationId } = data;
-      
+
       if (!conversationId) {
-        return socket.emit('error', { message: 'Conversation ID required' });
+        return socket.emit("error", { message: "Conversation ID required" });
       }
 
       handleTypingStop(io)(socket, conversationId);
-
     } catch (error) {
-      handleSocketError(socket, error, 'typing_stop');
+      handleSocketError(socket, error, "typing_stop");
     }
   });
 
@@ -223,104 +232,111 @@ const setupEventHandlers = (io, socket) => {
   /**
    * Join support ticket room
    */
-  socket.on('join_support_ticket', async (data) => {
+  socket.on("join_support_ticket", async (data) => {
     try {
       if (!validateSocketAuth(socket)) {
-        return socket.emit('error', { message: 'Not authenticated' });
+        return socket.emit("error", { message: "Not authenticated" });
       }
 
-      if (!joinRoomRateLimit(socket, 'join_support_ticket')) {
-        return socket.emit('error', { message: 'Rate limit exceeded for joining rooms' });
+      if (!joinRoomRateLimit(socket, "join_support_ticket")) {
+        return socket.emit("error", {
+          message: "Rate limit exceeded for joining rooms",
+        });
       }
 
       const { ticketId } = data;
-      
+
       if (!ticketId || !/^[0-9a-fA-F]{24}$/.test(ticketId)) {
-        return socket.emit('error', { message: 'Invalid ticket ID' });
+        return socket.emit("error", { message: "Invalid ticket ID" });
       }
 
       // Validate user has access to ticket
-      const { SupportTicket } = require('../models');
-      
+      const SupportTicket = require("../models/SupportTicket");
+
       const ticket = await SupportTicket.findById(ticketId);
       if (!ticket) {
-        return socket.emit('error', { message: 'Support ticket not found' });
+        return socket.emit("error", { message: "Support ticket not found" });
       }
 
       // Check access permissions
-      const hasAccess = 
-        (ticket.requester.userId.toString() === socket.userId && ticket.requester.userType === socket.userType) ||
-        (ticket.assignedTo?.userId?.toString() === socket.userId && socket.userType === 'Admin') ||
-        (socket.userType === 'Admin');
+      const hasAccess =
+        (ticket.requester.userId.toString() === socket.userId &&
+          ticket.requester.userType === socket.userType) ||
+        (ticket.assignedTo?.userId?.toString() === socket.userId &&
+          socket.userType === "Admin") ||
+        socket.userType === "Admin";
 
       if (!hasAccess) {
-        return socket.emit('error', { message: 'Access denied to support ticket' });
+        return socket.emit("error", {
+          message: "Access denied to support ticket",
+        });
       }
 
       // Join room
       const supportRoom = joinSupportRoom(io)(socket, ticketId);
-      
-      socket.emit('support_ticket_joined', {
+
+      socket.emit("support_ticket_joined", {
         ticketId,
         room: supportRoom,
-        timestamp: new Date()
+        timestamp: new Date(),
       });
-
     } catch (error) {
-      handleSocketError(socket, error, 'join_support_ticket');
+      handleSocketError(socket, error, "join_support_ticket");
     }
   });
 
   /**
    * Leave support ticket room
    */
-  socket.on('leave_support_ticket', (data) => {
+  socket.on("leave_support_ticket", (data) => {
     try {
       if (!validateSocketAuth(socket)) {
-        return socket.emit('error', { message: 'Not authenticated' });
+        return socket.emit("error", { message: "Not authenticated" });
       }
 
       const { ticketId } = data;
-      
+
       if (!ticketId) {
-        return socket.emit('error', { message: 'Ticket ID required' });
+        return socket.emit("error", { message: "Ticket ID required" });
       }
 
       leaveSupportRoom(io)(socket, ticketId);
-      
-      socket.emit('support_ticket_left', {
-        ticketId,
-        timestamp: new Date()
-      });
 
+      socket.emit("support_ticket_left", {
+        ticketId,
+        timestamp: new Date(),
+      });
     } catch (error) {
-      handleSocketError(socket, error, 'leave_support_ticket');
+      handleSocketError(socket, error, "leave_support_ticket");
     }
   });
 
   /**
    * Handle support typing
    */
-  socket.on('support_typing', (data) => {
+  socket.on("support_typing", (data) => {
     try {
       if (!validateSocketAuth(socket)) {
-        return socket.emit('error', { message: 'Not authenticated' });
+        return socket.emit("error", { message: "Not authenticated" });
       }
 
-      if (!typingRateLimit(socket, 'support_typing')) {
-        return socket.emit('error', { message: 'Rate limit exceeded for typing events' });
+      if (!typingRateLimit(socket, "support_typing")) {
+        return socket.emit("error", {
+          message: "Rate limit exceeded for typing events",
+        });
       }
 
       const { ticketId, isTyping } = data;
-      
-      if (!ticketId || typeof isTyping !== 'boolean') {
-        return socket.emit('error', { message: 'Ticket ID and typing status required' });
+
+      if (!ticketId || typeof isTyping !== "boolean") {
+        return socket.emit("error", {
+          message: "Ticket ID and typing status required",
+        });
       }
 
       handleSupportTyping(io)(socket, ticketId, isTyping);
-
     } catch (error) {
-      handleSocketError(socket, error, 'support_typing');
+      handleSocketError(socket, error, "support_typing");
     }
   });
 
@@ -329,77 +345,217 @@ const setupEventHandlers = (io, socket) => {
   /**
    * Handle message delivery acknowledgment
    */
-  socket.on('message_delivered', async (data) => {
+  socket.on("message_delivered", async (data) => {
     try {
       if (!validateSocketAuth(socket)) {
-        return socket.emit('error', { message: 'Not authenticated' });
+        return socket.emit("error", { message: "Not authenticated" });
       }
 
       const { messageId } = data;
-      
+
       if (!messageId || !/^[0-9a-fA-F]{24}$/.test(messageId)) {
-        return socket.emit('error', { message: 'Invalid message ID' });
+        return socket.emit("error", { message: "Invalid message ID" });
       }
 
       // Update message delivery status in database
-      const { Message } = require('../models');
-      const { handleMessageDelivered } = require('../utils/socketHelpers');
-      
-      await Message.updateOne({
-        _id: messageId,
-        'recipients.userId': socket.userId,
-        'recipients.userType': socket.userType
-      }, {
-        $set: {
-          'recipients.$.deliveredAt': new Date()
+      const Message = require("../models/Message");
+      const { handleMessageDelivered } = require("../utils/socketHelpers");
+
+      await Message.updateOne(
+        {
+          _id: messageId,
+          "recipients.userId": socket.userId,
+          "recipients.userType": socket.userType,
+        },
+        {
+          $set: {
+            "recipients.$.deliveredAt": new Date(),
+          },
         }
-      });
+      );
 
       // Emit delivery confirmation
       handleMessageDelivered(io)(messageId, socket.userId, socket.userType);
-
     } catch (error) {
-      handleSocketError(socket, error, 'message_delivered');
+      handleSocketError(socket, error, "message_delivered");
     }
   });
 
   /**
    * Handle message read acknowledgment
    */
-  socket.on('message_read', async (data) => {
+  socket.on("message_read", async (data) => {
     try {
       if (!validateSocketAuth(socket)) {
-        return socket.emit('error', { message: 'Not authenticated' });
+        return socket.emit("error", { message: "Not authenticated" });
       }
 
       const { messageId, conversationId } = data;
-      
+
       if (!messageId || !/^[0-9a-fA-F]{24}$/.test(messageId)) {
-        return socket.emit('error', { message: 'Invalid message ID' });
+        return socket.emit("error", { message: "Invalid message ID" });
       }
 
       // Update message read status in database
-      const { Message } = require('../models');
-      const { handleMessageRead } = require('../utils/socketHelpers');
-      
-      await Message.updateOne({
-        _id: messageId,
-        'recipients.userId': socket.userId,
-        'recipients.userType': socket.userType
-      }, {
-        $set: {
-          'recipients.$.readAt': new Date(),
-          status: 'read'
+      const Message = require("../models/Message");
+      const { handleMessageRead } = require("../utils/socketHelpers");
+
+      await Message.updateOne(
+        {
+          _id: messageId,
+          "recipients.userId": socket.userId,
+          "recipients.userType": socket.userType,
+        },
+        {
+          $set: {
+            "recipients.$.readAt": new Date(),
+            status: "read",
+          },
         }
-      });
+      );
 
       // Emit read confirmation if conversation ID provided
       if (conversationId) {
-        handleMessageRead(io)(messageId, conversationId, socket.userId, socket.userType);
+        handleMessageRead(io)(
+          messageId,
+          conversationId,
+          socket.userId,
+          socket.userType
+        );
+      }
+    } catch (error) {
+      handleSocketError(socket, error, "message_read");
+    }
+  });
+
+  /**
+   * Handle new message sent from frontend
+   */
+  socket.on("new_message_sent", async (data) => {
+    try {
+      if (!validateSocketAuth(socket)) {
+        return socket.emit("error", { message: "Not authenticated" });
       }
 
+      const { message, conversationId } = data;
+
+      // Validate conversation access
+      const Conversation = require("../models/Conversation");
+      const conversation = await Conversation.findById(conversationId).populate(
+        {
+          path: "participants.user.userId",
+          select: "firstName lastName businessInfo.businessName avatar",
+        }
+      );
+
+      if (!conversation) {
+        return socket.emit("error", { message: "Conversation not found" });
+      }
+
+      // Check if user is participant
+      const isParticipant = conversation.participants.some(
+        (p) =>
+          p.user.userId._id.toString() === socket.userId &&
+          p.user.userType === socket.userType &&
+          !p.isDeleted
+      );
+
+      if (!isParticipant) {
+        return socket.emit("error", {
+          message: "Access denied to conversation",
+        });
+      }
+
+      // Get other participants (recipients)
+      const otherParticipants = conversation.participants.filter(
+        (p) =>
+          !(
+            p.user.userId._id.toString() === socket.userId &&
+            p.user.userType === socket.userType
+          ) && !p.isDeleted
+      );
+
+      // Broadcast message to conversation room
+      const conversationRoom = getConversationRoom(conversationId);
+      socket.to(conversationRoom).emit("new_message", {
+        ...message,
+        sender: {
+          ...message.sender,
+          userId: {
+            _id: message.sender.userId._id || message.sender.userId,
+            firstName: socket.userInfo?.name?.split(" ")[0] || "User",
+            lastName: socket.userInfo?.name?.split(" ")[1] || "",
+            businessInfo: socket.userInfo?.businessInfo || {},
+          },
+        },
+        timestamp: new Date(),
+      });
+
+      // Send to individual user rooms for offline/background users
+      otherParticipants.forEach((participant) => {
+        const userRoom = getUserRoom(
+          participant.user.userType,
+          participant.user.userId._id
+        );
+
+        io.to(userRoom).emit("message_notification", {
+          conversationId,
+          messageId: message._id,
+          sender: message.sender,
+          messageType: message.messageType,
+          preview: getMessagePreview(message),
+          unreadCount: participant.unreadCount + 1,
+          timestamp: new Date(),
+        });
+      });
+
+      console.log(`Message broadcast to conversation: ${conversationId}`);
     } catch (error) {
-      handleSocketError(socket, error, 'message_read');
+      console.error("Error handling new message:", error);
+      socket.emit("error", { message: "Failed to broadcast message" });
+    }
+  });
+
+  /**
+   * Handle message read acknowledgment
+   */
+  socket.on("message_read", async (data) => {
+    try {
+      if (!validateSocketAuth(socket)) return;
+
+      const { messageId, conversationId } = data;
+
+      console.log("message to mark as read:", data);
+
+      // Update message in database
+      const Message = require("../models/Message");
+      await Message.updateOne(
+        {
+          _id: messageId,
+          "recipients.userId": socket.userId,
+          "recipients.userType": socket.userType,
+        },
+        {
+          $set: {
+            "recipients.$.readAt": new Date(),
+            status: "read",
+          },
+        }
+      );
+
+      // Notify sender about read status
+      const conversationRoom = getConversationRoom(conversationId);
+      socket.to(conversationRoom).emit("message_read", {
+        messageId,
+        conversationId,
+        readBy: {
+          userId: socket.userId,
+          userType: socket.userType,
+        },
+        timestamp: new Date(),
+      });
+    } catch (error) {
+      console.error("Error handling message read:", error);
     }
   });
 
@@ -408,29 +564,28 @@ const setupEventHandlers = (io, socket) => {
   /**
    * Handle user status update
    */
-  socket.on('update_status', (data) => {
+  socket.on("update_status", (data) => {
     try {
       if (!validateSocketAuth(socket)) {
-        return socket.emit('error', { message: 'Not authenticated' });
+        return socket.emit("error", { message: "Not authenticated" });
       }
 
       const { status } = data;
-      const validStatuses = ['online', 'away', 'busy'];
-      
+      const validStatuses = ["online", "away", "busy"];
+
       if (!status || !validStatuses.includes(status)) {
-        return socket.emit('error', { message: 'Invalid status' });
+        return socket.emit("error", { message: "Invalid status" });
       }
 
-      const { updateUserPresence } = require('../utils/socketHelpers');
+      const { updateUserPresence } = require("../utils/socketHelpers");
       updateUserPresence(io)(socket.userType, socket.userId, status);
 
-      socket.emit('status_updated', {
+      socket.emit("status_updated", {
         status,
-        timestamp: new Date()
+        timestamp: new Date(),
       });
-
     } catch (error) {
-      handleSocketError(socket, error, 'update_status');
+      handleSocketError(socket, error, "update_status");
     }
   });
 
@@ -439,33 +594,32 @@ const setupEventHandlers = (io, socket) => {
   /**
    * Admin broadcast (admin only)
    */
-  socket.on('admin_broadcast', (data) => {
+  socket.on("admin_broadcast", (data) => {
     try {
-      if (!validateSocketAuth(socket) || socket.userType !== 'Admin') {
-        return socket.emit('error', { message: 'Admin access required' });
+      if (!validateSocketAuth(socket) || socket.userType !== "Admin") {
+        return socket.emit("error", { message: "Admin access required" });
       }
 
-      const { message, targetType = 'all' } = data;
-      
+      const { message, targetType = "all" } = data;
+
       if (!message) {
-        return socket.emit('error', { message: 'Broadcast message required' });
+        return socket.emit("error", { message: "Broadcast message required" });
       }
 
-      const { broadcastToAdmins } = require('../utils/socketHelpers');
-      
-      if (targetType === 'admins') {
+      const { broadcastToAdmins } = require("../utils/socketHelpers");
+
+      if (targetType === "admins") {
         broadcastToAdmins(io)(message, { from: socket.userInfo });
       } else {
         // Broadcast to all users (implement as needed)
-        io.emit('system_broadcast', {
+        io.emit("system_broadcast", {
           message,
           from: socket.userInfo,
-          timestamp: new Date()
+          timestamp: new Date(),
         });
       }
-
     } catch (error) {
-      handleSocketError(socket, error, 'admin_broadcast');
+      handleSocketError(socket, error, "admin_broadcast");
     }
   });
 
@@ -474,18 +628,17 @@ const setupEventHandlers = (io, socket) => {
   /**
    * Handle socket disconnection
    */
-  socket.on('disconnect', (reason) => {
+  socket.on("disconnect", (reason) => {
     try {
       console.log(`Socket disconnected: ${socket.userKey} - Reason: ${reason}`);
-      
+
       // Leave presence room and announce offline status
       leavePresenceRoom(io)(socket);
-      
+
       // Clean up connection
       cleanupSocketConnection(socket);
-
     } catch (error) {
-      console.error('Error handling socket disconnect:', error);
+      console.error("Error handling socket disconnect:", error);
     }
   });
 
@@ -494,14 +647,14 @@ const setupEventHandlers = (io, socket) => {
   /**
    * Handle socket errors
    */
-  socket.on('error', (error) => {
+  socket.on("error", (error) => {
     console.error(`Socket error for ${socket.userKey}:`, error);
   });
 
   /**
    * Handle connection errors
    */
-  socket.on('connect_error', (error) => {
+  socket.on("connect_error", (error) => {
     console.error(`Connection error for ${socket.userKey}:`, error);
   });
 };
@@ -516,21 +669,29 @@ const socketAuthMiddleware = async (socket, next) => {
     const { token, userId, userType } = socket.handshake.auth;
 
     if (!token || !userId || !userType) {
-      return next(new Error('Missing authentication data'));
+      return next(new Error("Missing authentication data"));
     }
 
-    // Validate JWT token (implement your JWT validation here)
-    // const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    
-    // For now, just validate user exists
+    // Validate JWT token
+    try {
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    } catch (error) {
+      if (error.name === "TokenExpiredError") {
+        return next(new Error("Token has expired"));
+      }
+      return next(new Error("Invalid token"));
+    }
+
     const userExists = await validateUser(userType, userId);
+    console.log("userExists:", userExists);
     if (!userExists) {
-      return next(new Error('Invalid user'));
+      return next(new Error("Invalid user"));
     }
 
     next();
   } catch (error) {
-    next(new Error('Authentication failed'));
+    console.log(error);
+    next(new Error("Authentication failed"));
   }
 };
 
@@ -549,10 +710,12 @@ const rateLimitMiddleware = (maxRequests = 100, windowMs = 60000) => {
     }
 
     const requests = requestCounts.get(key);
-    const validRequests = requests.filter(timestamp => now - timestamp < windowMs);
+    const validRequests = requests.filter(
+      (timestamp) => now - timestamp < windowMs
+    );
 
     if (validRequests.length >= maxRequests) {
-      return next(new Error('Rate limit exceeded'));
+      return next(new Error("Rate limit exceeded"));
     }
 
     validRequests.push(now);
@@ -573,20 +736,20 @@ const getOnlineUsersCount = (io) => {
     total: 0,
     buyers: 0,
     sellers: 0,
-    admins: 0
+    admins: 0,
   };
 
-  sockets.forEach(socket => {
+  sockets.forEach((socket) => {
     if (socket.userType) {
       onlineUsers.total++;
       switch (socket.userType) {
-        case 'Buyer':
+        case "Buyer":
           onlineUsers.buyers++;
           break;
-        case 'Seller':
+        case "Seller":
           onlineUsers.sellers++;
           break;
-        case 'Admin':
+        case "Admin":
           onlineUsers.admins++;
           break;
       }
@@ -600,17 +763,17 @@ const getOnlineUsersCount = (io) => {
  * Get user's active conversations
  */
 const getUserActiveConversations = async (userId, userType) => {
-  const { Conversation } = require('../models');
-  const { isParticipant } = require('../utils/fpHelpers');
+  const Conversation = require("../models/Conversation");
+  const { isParticipant } = require("../utils/fpHelpers");
 
   const conversations = await Conversation.find({
-    'participants.user.userId': userId,
-    'participants.user.userType': userType,
-    'participants.isDeleted': false,
-    status: 'active'
-  }).select('_id');
+    "participants.user.userId": userId,
+    "participants.user.userType": userType,
+    "participants.isDeleted": false,
+    status: "active",
+  }).select("_id");
 
-  return conversations.map(conv => conv._id.toString());
+  return conversations.map((conv) => conv._id.toString());
 };
 
 module.exports = {
@@ -618,5 +781,5 @@ module.exports = {
   socketAuthMiddleware,
   rateLimitMiddleware,
   getOnlineUsersCount,
-  getUserActiveConversations
+  getUserActiveConversations,
 };

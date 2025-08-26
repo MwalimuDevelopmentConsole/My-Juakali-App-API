@@ -1,7 +1,7 @@
-const Product = require('../models/Product'); 
-const Conversation = require('../models/Conversation'); 
-const Message = require('../models/Message'); 
-const Notification = require('../models/Notification'); 
+const Product = require("../models/Product");
+const Conversation = require("../models/Conversation");
+const Message = require("../models/Message");
+const Notification = require("../models/Notification");
 
 const {
   createUserRef,
@@ -23,16 +23,17 @@ const {
   calculateSkip,
   getUserNotificationChannels,
   getNotificationTemplate,
-  pipeAsync
-} = require('../utils/fpHelpers');
+  pipeAsync,
+} = require("../utils/fpHelpers");
 
 const {
   deliverMessage,
   sendDirectNotification,
   handleMessageDelivered,
   handleMessageRead,
-  handleConversationRead
-} = require('../utils/socketHelpers');
+  handleConversationRead,
+} = require("../utils/socketHelpers");
+const { default: mongoose } = require("mongoose");
 
 // ============ PURE BUSINESS LOGIC FUNCTIONS ============
 
@@ -41,18 +42,26 @@ const {
  */
 const validateConversationAccess = async (conversationId, userId, userType) => {
   const conversation = await Conversation.findById(conversationId)
-    .populate('product', 'title status seller')
+    .populate("product", "title status seller")
     .populate({
-      path: 'participants.user.userId',
-      select: 'firstName lastName businessInfo.businessName avatar'
+      path: "participants.user.userId",
+      select: "firstName lastName businessInfo.businessName avatar",
     });
 
   if (!conversation) {
-    return { valid: false, error: createErrorResponse('Conversation not found', 404) };
+    return {
+      valid: false,
+      error: createErrorResponse("Conversation not found", 404),
+    };
   }
 
+  console.log(conversation, userId, userType);
+
   if (!isParticipant(userId, userType)(conversation)) {
-    return { valid: false, error: createErrorResponse('Access denied to this conversation', 403) };
+    return {
+      valid: false,
+      error: createErrorResponse("Access denied to this conversation", 403),
+    };
   }
 
   return { valid: true, conversation };
@@ -61,30 +70,43 @@ const validateConversationAccess = async (conversationId, userId, userType) => {
 /**
  * Validate users for conversation
  */
-const validateConversationUsers = async (buyerId, sellerId, productId = null) => {
+const validateConversationUsers = async (
+  buyerId,
+  sellerId,
+  productId = null
+) => {
   // Validate buyer
-  const buyerValid = await validateUser('Buyer', buyerId);
+  const buyerValid = await validateUser("Buyer", buyerId);
   if (!buyerValid) {
-    return { valid: false, error: createErrorResponse('Invalid buyer', 400) };
+    return { valid: false, error: createErrorResponse("Invalid buyer", 400) };
   }
 
   // Validate seller
-  const sellerValid = await validateUser('Seller', sellerId);
+  const sellerValid = await validateUser("Seller", sellerId);
   if (!sellerValid) {
-    return { valid: false, error: createErrorResponse('Invalid seller', 400) };
+    return { valid: false, error: createErrorResponse("Invalid seller", 400) };
   }
 
   // Validate product if provided
   if (productId) {
     const productValid = await validateProduct(productId, Product);
     if (!productValid) {
-      return { valid: false, error: createErrorResponse('Product not found or not available', 404) };
+      return {
+        valid: false,
+        error: createErrorResponse("Product not found or not available", 404),
+      };
     }
   }
 
   // Check if users are trying to message themselves
   if (buyerId === sellerId) {
-    return { valid: false, error: createErrorResponse('Cannot start conversation with yourself', 400) };
+    return {
+      valid: false,
+      error: createErrorResponse(
+        "Cannot start conversation with yourself",
+        400
+      ),
+    };
   }
 
   return { valid: true };
@@ -93,21 +115,29 @@ const validateConversationUsers = async (buyerId, sellerId, productId = null) =>
 /**
  * Create or get existing conversation
  */
-const getOrCreateConversation = async (buyerId, sellerId, productId, messageContent) => {
+const getOrCreateConversation = async (
+  buyerId,
+  sellerId,
+  productId,
+  messageContent
+) => {
   const participants = [
-    { userType: 'Buyer', userId: buyerId },
-    { userType: 'Seller', userId: sellerId }
+    { userType: "Buyer", userId: buyerId },
+    { userType: "Seller", userId: sellerId },
   ];
 
   // Check if conversation exists
-  let conversation = await conversationExists(participants, productId)(Conversation);
+  let conversation = await conversationExists(
+    participants,
+    productId
+  )(Conversation);
 
   if (!conversation) {
     // Create new conversation
     const conversationData = {
       participants: createParticipants(participants),
-      type: productId ? 'product_inquiry' : 'general',
-      status: 'active'
+      type: productId ? "product_inquiry" : "general",
+      status: "active",
     };
 
     if (productId) {
@@ -123,7 +153,14 @@ const getOrCreateConversation = async (buyerId, sellerId, productId, messageCont
 /**
  * Create and save message
  */
-const createMessage = async (conversationId, senderId, senderType, messageType, content, replyTo = null) => {
+const createMessage = async (
+  conversationId,
+  senderId,
+  senderType,
+  messageType,
+  content,
+  replyTo = null
+) => {
   const conversation = await Conversation.findById(conversationId);
   const recipients = createRecipients(senderId, senderType)(conversation);
 
@@ -133,7 +170,7 @@ const createMessage = async (conversationId, senderId, senderType, messageType, 
     recipients: recipients,
     messageType,
     content: sanitizeContent(messageType, content),
-    status: 'sent'
+    status: "sent",
   };
 
   if (replyTo) {
@@ -141,31 +178,43 @@ const createMessage = async (conversationId, senderId, senderType, messageType, 
   }
 
   const message = await Message.create(messageData);
-  
+
   // Populate sender info
-  await message.populate('sender.userId', 'firstName lastName businessInfo.businessName avatar');
-  
+  await message.populate(
+    "sender.userId",
+    "firstName lastName businessInfo.businessName avatar"
+  );
+
   return message;
 };
 
 /**
  * Update conversation after new message
  */
-const updateConversationAfterMessage = async (conversationId, messageId, senderId, senderType) => {
+const updateConversationAfterMessage = async (
+  conversationId,
+  messageId,
+  senderId,
+  senderType
+) => {
   const conversation = await Conversation.findById(conversationId);
-  
+
   // Update last message and activity
   conversation.lastMessage = messageId;
   conversation.lastActivity = new Date();
 
   // Increment unread count for recipients
-  const otherParticipants = getOtherParticipants(senderId, senderType)(conversation);
-  otherParticipants.forEach(participant => {
-    const participantIndex = conversation.participants.findIndex(p => 
-      p.user.userId.toString() === participant.user.userId.toString() &&
-      p.user.userType === participant.user.userType
+  const otherParticipants = getOtherParticipants(
+    senderId,
+    senderType
+  )(conversation);
+  otherParticipants.forEach((participant) => {
+    const participantIndex = conversation.participants.findIndex(
+      (p) =>
+        p.user.userId.toString() === participant.user.userId.toString() &&
+        p.user.userType === participant.user.userType
     );
-    
+
     if (participantIndex !== -1) {
       conversation.participants[participantIndex].unreadCount += 1;
     }
@@ -184,20 +233,26 @@ const createMessageNotifications = async (message, io) => {
   for (const recipient of recipients) {
     try {
       // Get notification preferences
-      const channels = await getUserNotificationChannels(recipient.userType, recipient.userId);
-      
+      const channels = await getUserNotificationChannels(
+        recipient.userType,
+        recipient.userId
+      );
+
       // Get notification template
-      const template = getNotificationTemplate('message', recipient.userType, {
-        senderName: sender.userId?.firstName || sender.userId?.businessInfo?.businessName || 'User'
+      const template = getNotificationTemplate("message", recipient.userType, {
+        senderName:
+          sender.userId?.firstName ||
+          sender.userId?.businessInfo?.businessName ||
+          "User",
       });
 
       // Create notification
       const notification = await Notification.create({
         recipient: {
           userType: recipient.userType,
-          userId: recipient.userId
+          userId: recipient.userId,
         },
-        type: 'message',
+        type: "message",
         template: template.template,
         title: template.title,
         message: template.message,
@@ -205,25 +260,34 @@ const createMessageNotifications = async (message, io) => {
           conversationId: conversation,
           messageId: message._id,
           senderId: sender.userId,
-          senderType: sender.userType
+          senderType: sender.userType,
         },
         channels,
-        priority: 'medium',
+        priority: "medium",
         relatedEntities: [
-          { entityType: 'Conversation', entityId: conversation },
-          { entityType: 'Message', entityId: message._id }
-        ]
+          { entityType: "Conversation", entityId: conversation },
+          { entityType: "Message", entityId: message._id },
+        ],
       });
 
       // Send real-time notification
       if (io) {
-        sendDirectNotification(io)(recipient.userType, recipient.userId, notification);
+        sendDirectNotification(io)(
+          recipient.userType,
+          recipient.userId,
+          notification
+        );
       }
     } catch (error) {
-      console.error('Error creating notification:', error);
+      console.error("Error creating notification:", error);
     }
   }
 };
+
+function capitalizeFirstLetter(str) {
+  if (!str) return "";
+  return str.charAt(0).toUpperCase() + str.slice(1);
+}
 
 // ============ CONTROLLER FUNCTIONS ============
 
@@ -232,8 +296,8 @@ const createMessageNotifications = async (message, io) => {
  */
 const getConversations = async (req, res) => {
   try {
-    const { id: userId, role: userType } = req.user;
-    const { page = 1, limit = 20, type = 'all' } = req.query;
+    const { id: userId, userType } = req.user;
+    const { page = 1, limit = 20, type = "all" } = req.query;
 
     const pageNum = parseInt(page);
     const limitNum = parseInt(limit);
@@ -241,46 +305,58 @@ const getConversations = async (req, res) => {
 
     // Build query
     const query = {
-      'participants.user.userId': userId,
-      'participants.user.userType': userType,
-      'participants.isDeleted': false
+      "participants.user.userId": userId,
+      "participants.user.userType": capitalizeFirstLetter(userType),
+      "participants.isDeleted": false,
     };
 
-    if (type !== 'all') {
+    console.log(query);
+
+    if (type !== "all") {
       query.type = type;
     }
 
     // Get conversations
     const conversations = await Conversation.find(query)
-      .populate('lastMessage')
-      .populate('product', 'title media.images status')
+      .populate("lastMessage")
+      .populate("product", "title media.images status")
       .populate({
-        path: 'participants.user.userId',
-        select: 'firstName lastName businessInfo.businessName avatar'
+        path: "participants.user.userId",
+        select: "firstName lastName businessInfo.businessName avatar",
       })
       .sort({ lastActivity: -1 })
       .skip(skip)
       .limit(limitNum);
 
     // Add unread count for current user
-    const conversationsWithUnread = conversations.map(conv => {
+    const conversationsWithUnread = conversations.map((conv) => {
       const participant = getParticipant(userId, userType)(conv);
       return {
         ...conv.toObject(),
-        unreadCount: participant ? participant.unreadCount : 0
+        unreadCount: participant ? participant.unreadCount : 0,
       };
     });
 
     const totalConversations = await Conversation.countDocuments(query);
 
-    res.json(createSuccessResponse({
-      conversations: conversationsWithUnread,
-      pagination: createPaginationInfo(pageNum, limitNum, totalConversations)
-    }, 'Conversations retrieved successfully'));
-
+    res.json(
+      createSuccessResponse(
+        {
+          conversations: conversationsWithUnread,
+          pagination: createPaginationInfo(
+            pageNum,
+            limitNum,
+            totalConversations
+          ),
+        },
+        "Conversations retrieved successfully"
+      )
+    );
   } catch (error) {
-    console.error('Error getting conversations:', error);
-    res.status(500).json(createErrorResponse('Failed to get conversations', 500));
+    console.error("Error getting conversations:", error);
+    res
+      .status(500)
+      .json(createErrorResponse("Failed to get conversations", 500));
   }
 };
 
@@ -293,74 +369,111 @@ const getConversationMessages = async (req, res) => {
     const { id: userId, role: userType } = req.user;
     const { page = 1, limit = 50 } = req.query;
 
-    // Validate access
-    const { valid, error, conversation } = await validateConversationAccess(conversationId, userId, userType);
-    if (!valid) {
-      return res.status(error.statusCode).json(error);
-    }
-
     const pageNum = parseInt(page);
     const limitNum = parseInt(limit);
     const skip = calculateSkip(pageNum, limitNum);
 
-    // Get messages
+    // ✅ Get conversation with participants
+    const conversation = await Conversation.findById(conversationId)
+      .populate("product")
+      .lean();
+
+    if (!conversation) {
+      return res
+        .status(404)
+        .json(createErrorResponse("Conversation not found", 404));
+    }
+
+    // ✅ Find the other participant
+    const otherParticipantData = conversation.participants.find(
+      (p) =>
+        p.user.userId.toString() !== userId.toString() &&
+        p.user.userType.toLowerCase() !== userType.toLowerCase()
+    );
+
+    let otherParticipant = null;
+
+    if (otherParticipantData) {
+      // ✅ Dynamically populate based on userType
+      otherParticipant = await mongoose
+        .model(otherParticipantData.user.userType)
+        .findById(
+          otherParticipantData.user.userId,
+          "firstName lastName role avatar"
+        )
+        .exec();
+    }
+
+    console.log(otherParticipant, otherParticipantData);
+
+    // ✅ Get messages
     const messages = await Message.find({
       conversation: conversationId,
-      isDeleted: false
+      isDeleted: false,
     })
-    .populate('sender.userId', 'firstName lastName businessInfo.businessName avatar')
-    .populate('replyTo')
-    .sort({ createdAt: -1 })
-    .skip(skip)
-    .limit(limitNum);
+      .populate(
+        "sender.userId",
+        "firstName lastName businessInfo.businessName avatar"
+      )
+      .populate("replyTo")
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limitNum);
 
     const totalMessages = await Message.countDocuments({
       conversation: conversationId,
-      isDeleted: false
+      isDeleted: false,
     });
 
-    // Mark messages as read and reset unread count
+    // ✅ Mark messages as read and reset unread count
     await pipeAsync(
-      // Update message read status
       async () => {
-        await Message.updateMany({
-          conversation: conversationId,
-          'recipients.userId': userId,
-          'recipients.userType': userType,
-          'recipients.readAt': { $exists: false }
-        }, {
-          $set: {
-            'recipients.$.readAt': new Date(),
-            status: 'read'
+        await Message.updateMany(
+          {
+            conversation: conversationId,
+            "recipients.userId": userId,
+            "recipients.userType": userType,
+            "recipients.readAt": { $exists: false },
+          },
+          {
+            $set: {
+              "recipients.$.readAt": new Date(),
+              status: "read",
+            },
           }
-        });
+        );
       },
-      // Reset unread count
       async () => {
         await Conversation.findOneAndUpdate(
-          { 
-            _id: conversationId, 
-            'participants.user.userId': userId,
-            'participants.user.userType': userType
+          {
+            _id: conversationId,
+            "participants.user.userId": userId,
+            "participants.user.userType": userType,
           },
-          { 
-            $set: { 
-              'participants.$.unreadCount': 0,
-              'participants.$.lastRead': new Date()
-            }
+          {
+            $set: {
+              "participants.$.unreadCount": 0,
+              "participants.$.lastRead": new Date(),
+            },
           }
         );
       }
     )();
 
-    res.json(createSuccessResponse({
-      messages: messages.reverse(), // Show oldest first
-      pagination: createPaginationInfo(pageNum, limitNum, totalMessages)
-    }, 'Messages retrieved successfully'));
-
+    res.json(
+      createSuccessResponse(
+        {
+          otherParticipant,
+          product: conversation.product || null,
+          messages: messages.reverse(), // Show oldest first
+          pagination: createPaginationInfo(pageNum, limitNum, totalMessages),
+        },
+        "Messages retrieved successfully"
+      )
+    );
   } catch (error) {
-    console.error('Error getting conversation messages:', error);
-    res.status(500).json(createErrorResponse('Failed to get messages', 500));
+    console.error("Error getting conversation messages:", error);
+    res.status(500).json(createErrorResponse("Failed to get messages", 500));
   }
 };
 
@@ -374,33 +487,53 @@ const startConversation = async (req, res) => {
 
     // Validation
     if (!sellerId || !message) {
-      return res.status(400).json(createErrorResponse('Seller ID and message are required'));
+      return res
+        .status(400)
+        .json(createErrorResponse("Seller ID and message are required"));
     }
 
-    if (userType !== 'Buyer') {
-      return res.status(403).json(createErrorResponse('Only buyers can start product conversations'));
+    if (userType.toLowerCase() !== "buyer") {
+      return res
+        .status(403)
+        .json(
+          createErrorResponse("Only buyers can start product conversations")
+        );
     }
 
     // Validate users and product
-    const { valid, error } = await validateConversationUsers(buyerId, sellerId, productId);
+    const { valid, error } = await validateConversationUsers(
+      buyerId,
+      sellerId,
+      productId
+    );
     if (!valid) {
       return res.status(error.statusCode).json(error);
     }
 
     // Create or get conversation
-    const conversation = await getOrCreateConversation(buyerId, sellerId, productId, message);
+    const conversation = await getOrCreateConversation(
+      buyerId,
+      sellerId,
+      productId,
+      message
+    );
 
     // Create message
     const newMessage = await createMessage(
       conversation._id,
       buyerId,
-      'Buyer',
-      'text',
+      "Buyer",
+      "text",
       { text: message }
     );
 
     // Update conversation
-    await updateConversationAfterMessage(conversation._id, newMessage._id, buyerId, 'Buyer');
+    await updateConversationAfterMessage(
+      conversation._id,
+      newMessage._id,
+      buyerId,
+      "Buyer"
+    );
 
     // Create notifications
     await createMessageNotifications(newMessage, req.io);
@@ -413,18 +546,24 @@ const startConversation = async (req, res) => {
     // Update product inquiry stats
     if (productId) {
       await Product.findByIdAndUpdate(productId, {
-        $inc: { 'stats.inquiries': 1 }
+        $inc: { "stats.inquiries": 1 },
       });
     }
 
-    res.status(201).json(createSuccessResponse({
-      conversation: conversation._id,
-      message: newMessage
-    }, 'Conversation started successfully'));
-
+    res.status(201).json(
+      createSuccessResponse(
+        {
+          conversation: conversation._id,
+          message: newMessage,
+        },
+        "Conversation started successfully"
+      )
+    );
   } catch (error) {
-    console.error('Error starting conversation:', error);
-    res.status(500).json(createErrorResponse('Failed to start conversation', 500));
+    console.error("Error starting conversation:", error);
+    res
+      .status(500)
+      .json(createErrorResponse("Failed to start conversation", 500));
   }
 };
 
@@ -434,18 +573,28 @@ const startConversation = async (req, res) => {
 const sendMessage = async (req, res) => {
   try {
     const { id: conversationId } = req.params;
-    const { messageType = 'text', content, replyTo } = req.body;
+    const { messageType = "text", content, replyTo } = req.body;
     const { id: senderId, role: senderType } = req.user;
 
     // Validate access
-    const { valid, error } = await validateConversationAccess(conversationId, senderId, senderType);
-    if (!valid) {
-      return res.status(error.statusCode).json(error);
-    }
+    // const { valid, error } = await validateConversationAccess(
+    //   conversationId,
+    //   senderId,
+    //   senderType
+    // );
+    // if (!valid) {
+    //   return res.status(error.statusCode).json(error);
+    // }
 
     // Validate message content
     if (!validateMessageContent(messageType, content)) {
-      return res.status(400).json(createErrorResponse('Invalid message content for type: ' + messageType));
+      return res
+        .status(400)
+        .json(
+          createErrorResponse(
+            "Invalid message content for type: " + messageType
+          )
+        );
     }
 
     // Create message
@@ -459,7 +608,12 @@ const sendMessage = async (req, res) => {
     );
 
     // Update conversation
-    await updateConversationAfterMessage(conversationId, newMessage._id, senderId, senderType);
+    await updateConversationAfterMessage(
+      conversationId,
+      newMessage._id,
+      senderId,
+      senderType
+    );
 
     // Create notifications
     await createMessageNotifications(newMessage, req.io);
@@ -469,13 +623,17 @@ const sendMessage = async (req, res) => {
       deliverMessage(req.io)(newMessage, conversationId);
     }
 
-    res.status(201).json(createSuccessResponse({
-      message: newMessage
-    }, 'Message sent successfully'));
-
+    res.status(201).json(
+      createSuccessResponse(
+        {
+          message: newMessage,
+        },
+        "Message sent successfully"
+      )
+    );
   } catch (error) {
-    console.error('Error sending message:', error);
-    res.status(500).json(createErrorResponse('Failed to send message', 500));
+    console.error("Error sending message:", error);
+    res.status(500).json(createErrorResponse("Failed to send message", 500));
   }
 };
 
@@ -488,7 +646,11 @@ const markConversationAsRead = async (req, res) => {
     const { id: userId, role: userType } = req.user;
 
     // Validate access
-    const { valid, error } = await validateConversationAccess(conversationId, userId, userType);
+    const { valid, error } = await validateConversationAccess(
+      conversationId,
+      userId,
+      userType
+    );
     if (!valid) {
       return res.status(error.statusCode).json(error);
     }
@@ -496,30 +658,33 @@ const markConversationAsRead = async (req, res) => {
     // Update message read status and conversation unread count
     await pipeAsync(
       async () => {
-        await Message.updateMany({
-          conversation: conversationId,
-          'recipients.userId': userId,
-          'recipients.userType': userType,
-          'recipients.readAt': { $exists: false }
-        }, {
-          $set: {
-            'recipients.$.readAt': new Date(),
-            status: 'read'
+        await Message.updateMany(
+          {
+            conversation: conversationId,
+            "recipients.userId": userId,
+            "recipients.userType": userType,
+            "recipients.readAt": { $exists: false },
+          },
+          {
+            $set: {
+              "recipients.$.readAt": new Date(),
+              status: "read",
+            },
           }
-        });
+        );
       },
       async () => {
         await Conversation.findOneAndUpdate(
-          { 
-            _id: conversationId, 
-            'participants.user.userId': userId,
-            'participants.user.userType': userType
+          {
+            _id: conversationId,
+            "participants.user.userId": userId,
+            "participants.user.userType": userType,
           },
-          { 
-            $set: { 
-              'participants.$.unreadCount': 0,
-              'participants.$.lastRead': new Date()
-            }
+          {
+            $set: {
+              "participants.$.unreadCount": 0,
+              "participants.$.lastRead": new Date(),
+            },
           }
         );
       }
@@ -530,11 +695,12 @@ const markConversationAsRead = async (req, res) => {
       handleConversationRead(req.io)(conversationId, userId, userType);
     }
 
-    res.json(createSuccessResponse({}, 'Conversation marked as read'));
-
+    res.json(createSuccessResponse({}, "Conversation marked as read"));
   } catch (error) {
-    console.error('Error marking conversation as read:', error);
-    res.status(500).json(createErrorResponse('Failed to mark conversation as read', 500));
+    console.error("Error marking conversation as read:", error);
+    res
+      .status(500)
+      .json(createErrorResponse("Failed to mark conversation as read", 500));
   }
 };
 
@@ -547,24 +713,29 @@ const deleteConversation = async (req, res) => {
     const { id: userId, role: userType } = req.user;
 
     const conversation = await Conversation.findOneAndUpdate(
-      { 
-        _id: conversationId, 
-        'participants.user.userId': userId,
-        'participants.user.userType': userType
+      {
+        _id: conversationId,
+        "participants.user.userId": userId,
+        "participants.user.userType": userType,
       },
-      { $set: { 'participants.$.isDeleted': true } },
+      { $set: { "participants.$.isDeleted": true } },
       { new: true }
     );
 
     if (!conversation) {
-      return res.status(404).json(createErrorResponse('Conversation not found or access denied', 404));
+      return res
+        .status(404)
+        .json(
+          createErrorResponse("Conversation not found or access denied", 404)
+        );
     }
 
-    res.json(createSuccessResponse({}, 'Conversation deleted successfully'));
-
+    res.json(createSuccessResponse({}, "Conversation deleted successfully"));
   } catch (error) {
-    console.error('Error deleting conversation:', error);
-    res.status(500).json(createErrorResponse('Failed to delete conversation', 500));
+    console.error("Error deleting conversation:", error);
+    res
+      .status(500)
+      .json(createErrorResponse("Failed to delete conversation", 500));
   }
 };
 
@@ -576,7 +747,11 @@ const getConversationDetails = async (req, res) => {
     const { id: conversationId } = req.params;
     const { id: userId, role: userType } = req.user;
 
-    const { valid, error, conversation } = await validateConversationAccess(conversationId, userId, userType);
+    const { valid, error, conversation } = await validateConversationAccess(
+      conversationId,
+      userId,
+      userType
+    );
     if (!valid) {
       return res.status(error.statusCode).json(error);
     }
@@ -584,16 +759,22 @@ const getConversationDetails = async (req, res) => {
     const participant = getParticipant(userId, userType)(conversation);
     const conversationData = {
       ...conversation.toObject(),
-      unreadCount: participant ? participant.unreadCount : 0
+      unreadCount: participant ? participant.unreadCount : 0,
     };
 
-    res.json(createSuccessResponse({
-      conversation: conversationData
-    }, 'Conversation details retrieved successfully'));
-
+    res.json(
+      createSuccessResponse(
+        {
+          conversation: conversationData,
+        },
+        "Conversation details retrieved successfully"
+      )
+    );
   } catch (error) {
-    console.error('Error getting conversation details:', error);
-    res.status(500).json(createErrorResponse('Failed to get conversation details', 500));
+    console.error("Error getting conversation details:", error);
+    res
+      .status(500)
+      .json(createErrorResponse("Failed to get conversation details", 500));
   }
 };
 
@@ -604,5 +785,5 @@ module.exports = {
   sendMessage,
   markConversationAsRead,
   deleteConversation,
-  getConversationDetails
+  getConversationDetails,
 };

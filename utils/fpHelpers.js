@@ -7,11 +7,11 @@ const Seller = require("../models/Seller");
  */
 const getUserModel = (userType) => {
   const models = {
-    Buyer: Buyer,
-    Seller: Seller,
-    Admin: Admin,
+    buyer: Buyer,
+    seller: Seller,
+    admin: Admin,
   };
-  return models[userType];
+  return models[userType.toLowerCase()] || null;
 };
 
 /**
@@ -345,15 +345,17 @@ const getUserNotificationChannels = async (userType, userId) => {
  * Validate user existence
  */
 const validateUser = async (userType, userId) => {
+  console.log("inside validateUser", userType, userId);
   const UserModel = getUserModel(userType);
-  if (!UserModel) return false;
+  if (!UserModel) {
+    console.log("No user model found for type:", userType, UserModel);
+    return false;
+  }
 
   const user = await UserModel.findById(userId).select("isActive status");
-  return (
-    user &&
-    user.isActive &&
-    (user.status === "active" || user.status === "pending")
-  );
+
+  console.log(user, "user found");
+  return user && user.isActive;
 };
 
 /**

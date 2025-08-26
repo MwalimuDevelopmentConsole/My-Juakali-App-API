@@ -304,9 +304,12 @@ productSchema.index({ 'ratings.average': -1 });
 productSchema.index({ expiresAt: 1 });
 
 // Virtual for primary image
-productSchema.virtual('primaryImage').get(function() {
-  const primaryImg = this.media.images.find(img => img.isPrimary);
-  return primaryImg || this.media.images[0];
+productSchema.virtual('primaryImage').get(function () {
+  const images = this.media?.images;
+  if (!Array.isArray(images)) return null;
+
+  return images.find(img => img.isPrimary) || images[0] || null;
 });
+
 
 module.exports = mongoose.model('Product', productSchema);
