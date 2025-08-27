@@ -497,7 +497,6 @@ const createProduct = async (req, res) => {
       serviceInfo,
     } = req.body;
     const parsedPricing = JSON.parse(pricing);
-    console.log(secondaryCategories);
 
     // Validation
     if (

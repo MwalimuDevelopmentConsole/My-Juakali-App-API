@@ -13,6 +13,7 @@ const productRoutes = require("./productRoutes");
 const supportRoutes = require("./supportRoutes");
 const chatRoutes = require("./chatRoutes");
 const notificationRoutes = require("./notificationRoutes");
+const marketerRoutes = require("./marketerRoutes");
 
 
 // Health check endpoint
@@ -36,6 +37,7 @@ router.use("/products", productRoutes);
 router.use("/support", supportRoutes);
 router.use("/chat", chatRoutes);
 router.use("/notifications", notificationRoutes);
+router.use("/marketers", marketerRoutes);
 
 // 404 handler for API routes
 router.use("*", (req, res) => {

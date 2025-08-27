@@ -9,7 +9,7 @@ const { generateTokens } = require("./authController");
 // @access  Public
 const registerBuyer = async (req, res) => {
   try {
-    const { email, password, firstName, lastName, phone } = req.body;
+    const { email, password, firstName, lastName, phone, source } = req.body;
 
     // Validation
     if (!email || !password) {
@@ -49,6 +49,7 @@ const registerBuyer = async (req, res) => {
       phone,
       emailVerificationToken,
       emailVerificationExpires,
+      source,
     };
 
     const buyer = await Buyer.create(buyerData);

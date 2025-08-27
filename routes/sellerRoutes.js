@@ -1,5 +1,6 @@
 const express = require("express");
 const router = express.Router();
+const { handleMulterError, upload } = require("../config/multer");
 
 // Import controllers
 const sellerController = require("../controllers/sellerController");
@@ -23,7 +24,15 @@ router
     isClient,
     sellerController.updateSellerProfile
   )
-  .post("/upload/documents", sellerController.uploadVerificationDocuments)
-  .post("/dashboard", sellerController.getSellerDashboard);
+  .post(
+    "/upload/documents",
+    authenticateToken,
+    upload.array("images", 5),
+    handleMulterError,
+    sellerController.uploadVerificationDocuments
+  )
+  .post("/dashboard", authenticateToken, sellerController.getSellerDashboard)
+  .patch("/remove/docs", authenticateToken, sellerController.removeVerificationDocument)
+  .post("/update-status", authenticateToken, sellerController.updateDocumentStatus);
 
 module.exports = router;
