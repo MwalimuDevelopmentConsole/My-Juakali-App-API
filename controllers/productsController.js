@@ -634,7 +634,10 @@ const updateProduct = async (req, res) => {
       inventory,
       serviceInfo,
       status,
+      primaryCategory,
+      secondaryCategory
     } = req.body;
+    console.log(req.body);
 
     // Handle image uploads (if any new images)
     if (req.files && req.files.length > 0) {
@@ -663,6 +666,8 @@ const updateProduct = async (req, res) => {
         Math.random().toString(36).substr(2, 9);
     }
     if (description) product.description = description;
+    if (primaryCategory) product.primaryCategory = primaryCategory;
+    if (secondaryCategory) product.secondaryCategories = [secondaryCategory];
     if (shortDescription) product.shortDescription = shortDescription;
     if (condition) product.condition = condition;
     if (pricing) product.pricing = { ...product.pricing, ...pricing };
