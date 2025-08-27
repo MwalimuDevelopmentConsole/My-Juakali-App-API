@@ -34,6 +34,10 @@ const buyerSchema = new Schema(
       trim: true,
       maxlength: 50,
     },
+    source: {
+      type: String,
+      default: "organic", // e.g., organic, referral, ad campaign
+    },
     phone: {
       type: String,
       trim: true,

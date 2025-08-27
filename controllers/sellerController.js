@@ -22,8 +22,6 @@ const registerSeller = async (req, res) => {
       referralCode,
     } = req.body;
 
-    console.log(req.body);
-
     // Validation
     if (
       !email ||
@@ -322,12 +320,19 @@ const updateSellerProfile = async (req, res) => {
 // @access  Seller only
 const uploadVerificationDocuments = async (req, res) => {
   try {
-    const { documentType } = req.body; // 'identity' or 'business'
+    const { documentType, sellerId } = req.body; // 'identity' or 'business'
 
     if (!req.files || req.files.length === 0) {
       return res.status(400).json({
         success: false,
         message: "No documents uploaded",
+      });
+    }
+
+    if (!sellerId && req.user.role.toLoercase() !== "admin") {
+      return res.status(400).json({
+        success: false,
+        message: "Seller ID is required",
       });
     }
 
@@ -338,7 +343,10 @@ const uploadVerificationDocuments = async (req, res) => {
       });
     }
 
-    const seller = await Seller.findById(req.user.id);
+    const sellerIdToUse =
+      req.user.role.toLowerCase() === "admin" ? sellerId : req.user.id;
+
+    const seller = await Seller.findById(sellerIdToUse);
 
     if (!seller) {
       return res.status(404).json({
@@ -356,9 +364,8 @@ const uploadVerificationDocuments = async (req, res) => {
       });
 
       uploadedDocuments.push({
-        type: file.fieldname, // national_id, passport, business_permit, etc.
-        url: result.secure_url,
-        publicId: result.public_id,
+        type: file.originalname, // national_id, passport, business_permit, etc.
+        url: `${process.env.API_DOMAIN}/${file.path}`,
         status: "pending",
       });
     }
@@ -644,11 +651,127 @@ const getSellerOverview = async (req, res) => {
   }
 };
 
+const removeVerificationDocument = async (req, res) => {
+  try {
+    const { sellerId, documentType, documentId } = req.body;
+
+    if (!["identity", "business"].includes(documentType)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid document type. Must be "identity" or "business"',
+      });
+    }
+
+    const seller = await Seller.findById(sellerId);
+    if (!seller) {
+      return res.status(404).json({
+        success: false,
+        message: "Seller not found",
+      });
+    }
+
+    // Find the document
+    const docIndex = seller.verification[documentType].documents.findIndex(
+      (doc) => doc._id.toString() === documentId
+    );
+
+    if (docIndex === -1) {
+      return res.status(404).json({
+        success: false,
+        message: "Document not found",
+      });
+    }
+
+    const [removedDoc] = seller.verification[documentType].documents.splice(
+      docIndex,
+      1
+    );
+
+    await seller.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Document removed successfully",
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Server Error",
+      error: error.message,
+    });
+  }
+};
+
+const updateDocumentStatus = async (req, res) => {
+  try {
+    const { sellerId, documentType, documentId, status, rejectionReason } =
+      req.body;
+
+    if (!["identity", "business"].includes(documentType)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid document type. Must be "identity" or "business"',
+      });
+    }
+
+    if (!["approved", "rejected"].includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid status. Must be "approved" or "rejected"',
+      });
+    }
+
+    const seller = await Seller.findById(sellerId);
+    if (!seller) {
+      return res.status(404).json({
+        success: false,
+        message: "Seller not found",
+      });
+    }
+
+    const document = seller.verification[documentType].documents.find(
+      (doc) => doc._id.toString() === documentId
+    );
+
+    if (!document) {
+      return res.status(404).json({
+        success: false,
+        message: "Document not found",
+      });
+    }
+
+    document.status = status;
+    if (status === "approved") {
+      document.verifiedAt = new Date();
+      document.verifiedBy = req.user.id; // Admin ID from auth middleware
+      seller.verification[documentType].verified = true;
+    } else if (status === "rejected") {
+      document.rejectionReason = rejectionReason || "No reason provided";
+    }
+
+    await seller.save();
+
+    res.status(200).json({
+      success: true,
+      message: `Document ${status} successfully`,
+      document,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Server Error",
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   registerSeller,
   getSellerProfile,
   updateSellerProfile,
   uploadVerificationDocuments,
   getSellerDashboard,
-  getSellerOverview
+  getSellerOverview,
+  removeVerificationDocument,
+  updateDocumentStatus,
 };
