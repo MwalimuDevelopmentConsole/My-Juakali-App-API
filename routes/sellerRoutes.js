@@ -14,7 +14,6 @@ router
   .get(
     "/profile",
     authenticateToken,
-    isClient,
     sellerController.getSellerProfile
   )
   .get("/seller-details/:sellerId", sellerController.getSellerOverview)
@@ -31,7 +30,7 @@ router
     handleMulterError,
     sellerController.uploadVerificationDocuments
   )
-  .post("/dashboard", authenticateToken, sellerController.getSellerDashboard)
+  .get("/dashboard", authenticateToken, sellerController.getSellerDashboard)
   .patch("/remove/docs", authenticateToken, sellerController.removeVerificationDocument)
   .post("/update-status", authenticateToken, sellerController.updateDocumentStatus);
 

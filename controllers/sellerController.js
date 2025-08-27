@@ -5,6 +5,7 @@ const { generateTokens } = require("./authController");
 const Marketer = require("../models/Marketer");
 const crypto = require("crypto");
 const bcrypt = require("bcryptjs");
+const Product = require("../models/Product");
 
 // @desc    Register new seller
 // @route   POST /api/sellers/register
@@ -211,7 +212,8 @@ const getSellerProfile = async (req, res) => {
           select: "name planType features",
         },
       })
-      .populate("subscriptionHistory");
+      .populate("subscriptionHistory")
+      .select("-password");
 
     if (!seller) {
       return res.status(404).json({
@@ -704,8 +706,13 @@ const removeVerificationDocument = async (req, res) => {
 
 const updateDocumentStatus = async (req, res) => {
   try {
-    const { sellerId, documentType, documentId, status, rejectionReason } =
-      req.body;
+    const {
+      sellerId,
+      documentType,
+      documentId,
+      status,
+      rejectionReason,
+    } = req.body;
 
     if (!["identity", "business"].includes(documentType)) {
       return res.status(400).json({

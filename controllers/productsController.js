@@ -636,7 +636,6 @@ const updateProduct = async (req, res) => {
       primaryCategory,
       secondaryCategory
     } = req.body;
-    console.log(req.body);
 
     // Handle image uploads (if any new images)
     if (req.files && req.files.length > 0) {
@@ -649,7 +648,7 @@ const updateProduct = async (req, res) => {
         order: index,
       }));
 
-      product.media.images = newImages;
+      product.media.images = [...product.media.images, ...newImages];
     }
 
     // Update fields

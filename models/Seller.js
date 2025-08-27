@@ -275,12 +275,12 @@ const sellerSchema = new Schema(
     // Subscription Information (Reference to UserSubscription)
     currentSubscription: {
       type: Schema.Types.ObjectId,
-      ref: "UserSubscription",
+      ref: "SellerSubscription",
     },
     subscriptionHistory: [
       {
         type: Schema.Types.ObjectId,
-        ref: "UserSubscription",
+        ref: "SellerSubscription",
       },
     ],
 
