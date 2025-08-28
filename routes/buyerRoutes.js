@@ -9,7 +9,7 @@ const { authenticateToken, isClient } = require('../middleware/auth');
 
 // Buyer routes
 router.post('/register', buyerController.registerBuyer)
-       .get('/profile', authenticateToken, isClient, buyerController.getBuyerProfile)
+       .get('/profile', authenticateToken, buyerController.getBuyerProfile)
        .patch('/update-profile', authenticateToken, isClient, buyerController.updateBuyerProfile)
        .post('/verify-email/:token', buyerController.verifyEmail)
        .post('/forgot-password', buyerController.forgotPassword)

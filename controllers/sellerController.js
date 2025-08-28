@@ -338,11 +338,6 @@ const uploadVerificationDocuments = async (req, res) => {
     const uploadedDocuments = [];
 
     for (const file of req.files) {
-      const result = await cloudinary.uploader.upload(file.path, {
-        folder: `myjuakali/sellers/documents/${documentType}`,
-        resource_type: "auto",
-      });
-
       uploadedDocuments.push({
         type: file.originalname, // national_id, passport, business_permit, etc.
         url: `${process.env.API_DOMAIN}/${file.path}`,
@@ -729,13 +724,8 @@ const removeVerificationDocument = async (req, res) => {
 
 const updateDocumentStatus = async (req, res) => {
   try {
-    const {
-      sellerId,
-      documentType,
-      documentId,
-      status,
-      rejectionReason,
-    } = req.body;
+    const { sellerId, documentType, documentId, status, rejectionReason } =
+      req.body;
 
     if (!["identity", "business"].includes(documentType)) {
       return res.status(400).json({

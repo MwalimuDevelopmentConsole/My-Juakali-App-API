@@ -437,6 +437,8 @@ const setupEventHandlers = (io, socket) => {
         return socket.emit("error", { message: "Not authenticated" });
       }
 
+      console.log("new_message_sent data:", data);
+
       const { message, conversationId } = data;
 
       // Validate conversation access

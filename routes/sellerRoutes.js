@@ -17,6 +17,7 @@ router
     "/update-profile",
     authenticateToken,
     // isClient,
+    upload.single("file"),
     sellerController.updateSellerProfile
   )
   .post(

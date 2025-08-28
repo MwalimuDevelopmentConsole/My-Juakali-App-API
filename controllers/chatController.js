@@ -310,7 +310,7 @@ const getConversations = async (req, res) => {
       "participants.isDeleted": false,
     };
 
-    console.log(query);
+   
 
     if (type !== "all") {
       query.type = type;
@@ -322,11 +322,13 @@ const getConversations = async (req, res) => {
       .populate("product", "title media.images status")
       .populate({
         path: "participants.user.userId",
-        select: "firstName lastName businessInfo.businessName avatar",
+        select: "firstName lastName businessInfo.businessName avatar email",
       })
       .sort({ lastActivity: -1 })
       .skip(skip)
       .limit(limitNum);
+
+     
 
     // Add unread count for current user
     const conversationsWithUnread = conversations.map((conv) => {
@@ -646,14 +648,14 @@ const markConversationAsRead = async (req, res) => {
     const { id: userId, role: userType } = req.user;
 
     // Validate access
-    const { valid, error } = await validateConversationAccess(
-      conversationId,
-      userId,
-      userType
-    );
-    if (!valid) {
-      return res.status(error.statusCode).json(error);
-    }
+    // const { valid, error } = await validateConversationAccess(
+    //   conversationId,
+    //   userId,
+    //   userType
+    // );
+    // if (!valid) {
+    //   return res.status(error.statusCode).json(error);
+    // }
 
     // Update message read status and conversation unread count
     await pipeAsync(
