@@ -401,7 +401,7 @@ const getConversationMessages = async (req, res) => {
         .model(otherParticipantData.user.userType)
         .findById(
           otherParticipantData.user.userId,
-          "firstName lastName role avatar"
+          "firstName lastName role avatar email"
         )
         .exec();
     }
