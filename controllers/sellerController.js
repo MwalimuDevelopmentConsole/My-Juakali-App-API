@@ -772,6 +772,56 @@ const updateDocumentStatus = async (req, res) => {
   }
 };
 
+const updateSellerStatus = async (req, res) => {
+  try {
+    const { sellerId, status } = req.body;
+
+    if (!["active", "inactive", "suspended", "banned"].includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message:
+          'Invalid status. Must be one of "active", "inactive", "suspended", or "banned"',
+      });
+    }
+
+    const seller = await Seller.findById(sellerId);
+    if (!seller) {
+      return res.status(404).json({
+        success: false,
+        message: "Seller not found",
+      });
+    }
+
+    seller.status = status;
+    if (status === "active") {
+      seller.isActive = true;
+    } else {
+      seller.isActive = false;
+    }
+
+    await seller.save();
+    await Product.updateMany(
+      {
+        seller: seller._id,
+      },
+      {
+        status: status === "active" ? "active" : "suspended",
+      }
+    );
+
+    res.status(200).json({
+      success: true,
+      message: `Seller status updated to ${status}`,
+    });
+  } catch (error) {
+    console.log(error);
+    res.status(500).json({
+      success: false,
+      message: "Something went wrong",
+    });
+  }
+};
+
 module.exports = {
   registerSeller,
   getSellerProfile,
@@ -781,4 +831,5 @@ module.exports = {
   getSellerOverview,
   removeVerificationDocument,
   updateDocumentStatus,
+  updateSellerStatus
 };

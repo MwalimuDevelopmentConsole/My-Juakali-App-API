@@ -32,6 +32,7 @@ router
   )
   .get("/dashboard", authenticateToken, sellerController.getSellerDashboard)
   .patch("/remove/docs", authenticateToken, sellerController.removeVerificationDocument)
-  .post("/update-status", authenticateToken, sellerController.updateDocumentStatus);
+  .patch("/update-status", authenticateToken, sellerController.updateSellerStatus)
+  .post("/docs/update-status", authenticateToken, sellerController.updateDocumentStatus);
 
 module.exports = router;

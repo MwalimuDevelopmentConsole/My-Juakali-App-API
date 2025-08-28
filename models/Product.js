@@ -179,7 +179,7 @@ const productSchema = new Schema({
   // Status and Visibility
   status: {
     type: String,
-    enum: ['draft', 'active', 'inactive', 'pending_approval', 'rejected', 'sold'],
+    enum: ['draft', 'active', 'inactive', 'pending_approval', 'rejected', 'sold', 'suspended'],
     default: 'pending_approval',
     index: true
   },
