@@ -16,6 +16,7 @@ const notificationRoutes = require("./notificationRoutes");
 const marketerRoutes = require("./marketerRoutes");
 const accountRoutes = require("./accountRoutes");
 const generalLedgerRoutes = require("./generalLedgerRoutes");
+const accountTypeRoutes = require("./accountTypeRoutes");
 
 
 // Health check endpoint
@@ -42,6 +43,7 @@ router.use("/notifications", notificationRoutes);
 router.use("/marketers", marketerRoutes);
 router.use("/accounts", accountRoutes);
 router.use("/general-ledger", generalLedgerRoutes);
+router.use("/account-types", accountTypeRoutes);
 
 // 404 handler for API routes
 router.use("*", (req, res) => {
