@@ -11,16 +11,12 @@ const { authenticateToken, isClient } = require("../middleware/auth");
 // Seller routes
 router
   .post("/register", sellerController.registerSeller)
-  .get(
-    "/profile",
-    authenticateToken,
-    sellerController.getSellerProfile
-  )
+  .get("/profile", authenticateToken, sellerController.getSellerProfile)
   .get("/seller-details/:sellerId", sellerController.getSellerOverview)
   .patch(
     "/update-profile",
     authenticateToken,
-    isClient,
+    // isClient,
     sellerController.updateSellerProfile
   )
   .post(
@@ -30,9 +26,28 @@ router
     handleMulterError,
     sellerController.uploadVerificationDocuments
   )
+  .patch(
+    "/upload/dp",
+    authenticateToken,
+    upload.single("file"),
+    handleMulterError,
+    sellerController.uploadProfileAvatar
+  )
   .get("/dashboard", authenticateToken, sellerController.getSellerDashboard)
-  .patch("/remove/docs", authenticateToken, sellerController.removeVerificationDocument)
-  .patch("/update-status", authenticateToken, sellerController.updateSellerStatus)
-  .post("/docs/update-status", authenticateToken, sellerController.updateDocumentStatus);
+  .patch(
+    "/remove/docs",
+    authenticateToken,
+    sellerController.removeVerificationDocument
+  )
+  .patch(
+    "/update-status",
+    authenticateToken,
+    sellerController.updateSellerStatus
+  )
+  .post(
+    "/docs/update-status",
+    authenticateToken,
+    sellerController.updateDocumentStatus
+  );
 
 module.exports = router;

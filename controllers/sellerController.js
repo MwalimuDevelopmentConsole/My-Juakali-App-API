@@ -259,28 +259,6 @@ const updateSellerProfile = async (req, res) => {
       });
     }
 
-    // Handle avatar upload
-    if (req.file) {
-      // Delete old avatar
-      if (seller.avatar && seller.avatar.publicId) {
-        await cloudinary.uploader.destroy(seller.avatar.publicId);
-      }
-
-      const result = await cloudinary.uploader.upload(req.file.path, {
-        folder: "myjuakali/sellers/avatars",
-        transformation: [
-          { width: 300, height: 300, crop: "fill" },
-          { quality: "auto:good" },
-        ],
-      });
-
-      seller.avatar = {
-        url: result.secure_url,
-        publicId: result.public_id,
-        alt: `${firstName || seller.firstName} ${lastName || seller.lastName}`,
-      };
-    }
-
     // Update fields
     if (firstName) seller.firstName = firstName;
     if (lastName) seller.lastName = lastName;
@@ -331,7 +309,7 @@ const uploadVerificationDocuments = async (req, res) => {
       });
     }
 
-    if (!sellerId && req.user.role.toLoercase() !== "admin") {
+    if (!sellerId) {
       return res.status(400).json({
         success: false,
         message: "Seller ID is required",
@@ -385,6 +363,51 @@ const uploadVerificationDocuments = async (req, res) => {
       success: true,
       message: "Documents uploaded successfully and are pending verification",
       documents: uploadedDocuments,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Server Error",
+      error: error.message,
+    });
+  }
+};
+const uploadProfileAvatar = async (req, res) => {
+  try {
+    const { sellerId } = req.body;
+    if (!req.file) {
+      return res.status(400).json({
+        success: false,
+        message: "No photo uploaded",
+      });
+    }
+
+    if (!sellerId) {
+      return res.status(400).json({
+        success: false,
+        message: "Seller ID is required",
+      });
+    }
+
+    const seller = await Seller.findById(sellerId);
+
+    if (!seller) {
+      return res.status(404).json({
+        success: false,
+        message: "Seller not found",
+      });
+    }
+
+    seller.avatar = {
+      alt: "profile photo",
+      url: `${process.env.API_DOMAIN}/${req.file.path}`,
+    };
+
+    await seller.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Profile updated successfully",
     });
   } catch (error) {
     res.status(500).json({
@@ -831,5 +854,6 @@ module.exports = {
   getSellerOverview,
   removeVerificationDocument,
   updateDocumentStatus,
-  updateSellerStatus
+  updateSellerStatus,
+  uploadProfileAvatar,
 };
