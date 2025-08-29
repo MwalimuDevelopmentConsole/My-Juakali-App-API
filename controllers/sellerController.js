@@ -337,9 +337,9 @@ const uploadVerificationDocuments = async (req, res) => {
 
     const uploadedDocuments = [];
 
-    for (const file of req.files) {
+    for (const [index, file] of req.files.entries()) {
       uploadedDocuments.push({
-        type: file.originalname, // national_id, passport, business_permit, etc.
+        type: req.body.documentTypes[index],
         url: `${process.env.API_DOMAIN}/${file.path}`,
         status: "pending",
       });
@@ -350,7 +350,7 @@ const uploadVerificationDocuments = async (req, res) => {
       seller.verification.identity.documents.push(...uploadedDocuments);
     } else {
       seller.verification.business.documents.push(...uploadedDocuments);
-    }
+    }    
 
     await seller.save();
 
@@ -724,8 +724,13 @@ const removeVerificationDocument = async (req, res) => {
 
 const updateDocumentStatus = async (req, res) => {
   try {
-    const { sellerId, documentType, documentId, status, rejectionReason } =
-      req.body;
+    const {
+      sellerId,
+      documentType,
+      documentId,
+      status,
+      rejectionReason,
+    } = req.body;
 
     if (!["identity", "business"].includes(documentType)) {
       return res.status(400).json({
