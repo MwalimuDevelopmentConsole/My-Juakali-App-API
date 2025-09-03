@@ -162,6 +162,14 @@ const sellerSchema = new Schema(
       index: true,
     },
 
+    capabilities: {
+      customOrders: { type: Boolean, default: false },
+      bulkOrders: { type: Boolean, default: false },
+      canDeliver: { type: Boolean, default: false },
+      freeEstimates: { type: Boolean, default: false },
+      onSiteServices: { type: Boolean, default: false },
+    },
+
     // Verification & Trust
     verification: {
       email: {

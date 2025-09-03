@@ -13,6 +13,8 @@ const connectDB = require('./config/dbConn');
 const allowedOrigins = require('./config/allowedOrigins');
 const { initializeSocketServer, attachSocketIO, gracefulShutdown } = require('./socketSetup');
 
+
+
 const app = express();
 const server = http.createServer(app); // ✅ Create HTTP server for Socket.IO
 const PORT = process.env.PORT || 3501;
@@ -37,6 +39,8 @@ app.use(
     methods: ['POST', 'PUT', 'GET', 'PATCH', 'OPTIONS', 'HEAD', 'DELETE'],
   })
 );
+
+
 
 // Middleware
 app.use(express.json());

@@ -197,8 +197,11 @@ const createRateLimit = (windowMs, max, message) => {
       (time) => now - time < windowMs
     );
     requests.set(clientId, validRequests);
+    // console.log(requests);
 
     if (validRequests.length >= max) {
+      // console.log(req);
+
       const response = formatResponse(
         false,
         null,

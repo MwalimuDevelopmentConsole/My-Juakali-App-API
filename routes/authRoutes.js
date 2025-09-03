@@ -21,6 +21,7 @@ const authRateLimit = createRateLimit(15 * 60 * 1000, 5, 'Too many authenticatio
 
 // Login
 router.post('/login', authRateLimit, authController.login);
+router.post('/seller-buyer-agent-login', authRateLimit, authController.sellerBuyerAgentLogin);
 
 // Refresh access token using refresh token from cookies
 router.get('/refresh', authController.refreshToken);

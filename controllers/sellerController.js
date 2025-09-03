@@ -350,7 +350,7 @@ const uploadVerificationDocuments = async (req, res) => {
       seller.verification.identity.documents.push(...uploadedDocuments);
     } else {
       seller.verification.business.documents.push(...uploadedDocuments);
-    }    
+    }
 
     await seller.save();
 
@@ -367,6 +367,7 @@ const uploadVerificationDocuments = async (req, res) => {
     });
   }
 };
+
 const uploadProfileAvatar = async (req, res) => {
   try {
     const { sellerId } = req.body;
@@ -724,13 +725,8 @@ const removeVerificationDocument = async (req, res) => {
 
 const updateDocumentStatus = async (req, res) => {
   try {
-    const {
-      sellerId,
-      documentType,
-      documentId,
-      status,
-      rejectionReason,
-    } = req.body;
+    const { sellerId, documentType, documentId, status, rejectionReason } =
+      req.body;
 
     if (!["identity", "business"].includes(documentType)) {
       return res.status(400).json({
@@ -840,6 +836,58 @@ const updateSellerStatus = async (req, res) => {
   }
 };
 
+const manageSellerCapabilities = async (req, res) => {
+  try {
+    const { sellerId, capabilities } = req.body;
+
+    const validCapabilities = [
+      "customOrders",
+      "bulkOrders",
+      "canDeliver",
+      "freeEstimates",
+      "onSiteServices",
+    ];
+
+    // Validate capabilities
+    for (const key of Object.keys(capabilities)) {
+      if (!validCapabilities.includes(key)) {
+        return res.status(400).json({
+          success: false,
+          message: `Invalid capability: ${key}`,
+        });
+      }
+    }
+
+    const seller = await Seller.findById(sellerId);
+    if (!seller) {
+      return res.status(404).json({
+        success: false,
+        message: "Seller not found",
+      });
+    }
+
+    // Update capabilities
+    seller.capabilities = {
+      ...seller.capabilities,
+      ...capabilities,
+    };
+
+    await seller.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Seller capabilities updated successfully",
+      capabilities: seller.capabilities,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Server Error",
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   registerSeller,
   getSellerProfile,
@@ -851,4 +899,5 @@ module.exports = {
   updateDocumentStatus,
   updateSellerStatus,
   uploadProfileAvatar,
+  manageSellerCapabilities
 };

@@ -49,6 +49,11 @@ router
     "/docs/update-status",
     authenticateToken,
     sellerController.updateDocumentStatus
+  )
+  .patch(
+    "/manage-capabilities",
+    authenticateToken,
+    sellerController.manageSellerCapabilities
   );
 
 module.exports = router;

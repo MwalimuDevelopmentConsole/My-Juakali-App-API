@@ -16,13 +16,13 @@ const {
 const authRateLimit = createRateLimit(15 * 60 * 1000, 5, 'Too many authentication attempts, please try again later');
 
 // Login
-router.post('/', authRateLimit, authGoogleController.initiateGoogleAuth);
+router.post('/', authRateLimit, authGoogleController.googleAuth);
 
-router.get('/callback', authGoogleController.handleGoogleCallback);
+// router.get('/callback', authGoogleController.handleGoogleCallback);
 
-router.post('/verify', authGoogleController.verifyGoogleToken);
+// router.post('/verify', authGoogleController.verifyGoogleToken);
 
-router.get('/user', authGoogleController.getCurrentUser);
+// router.get('/user', authGoogleController.getCurrentUser);
 
 
 module.exports = router;
