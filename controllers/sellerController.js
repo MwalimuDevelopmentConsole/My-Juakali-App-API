@@ -6,6 +6,7 @@ const Marketer = require("../models/Marketer");
 const crypto = require("crypto");
 const bcrypt = require("bcryptjs");
 const Product = require("../models/Product");
+const mongoose = require('mongoose'); 
 
 // @desc    Register new seller
 // @route   POST /api/sellers/register
@@ -725,8 +726,13 @@ const removeVerificationDocument = async (req, res) => {
 
 const updateDocumentStatus = async (req, res) => {
   try {
-    const { sellerId, documentType, documentId, status, rejectionReason } =
-      req.body;
+    const {
+      sellerId,
+      documentType,
+      documentId,
+      status,
+      rejectionReason,
+    } = req.body;
 
     if (!["identity", "business"].includes(documentType)) {
       return res.status(400).json({
@@ -888,6 +894,61 @@ const manageSellerCapabilities = async (req, res) => {
   }
 };
 
+const getSellersByAgentId = async (req, res) => {
+  try {
+    const { page = 1, limit = 10, agentId, status } = req.query;
+
+    if (!agentId) {
+      return res.status(400).json({
+        success: false,
+        message: "Marketer Id is required",
+      });
+    }
+
+    const pageNum = parseInt(page);
+    const limitNum = parseInt(limit);
+    const skip = (pageNum - 1) * limitNum;
+
+    let filter = {
+      referredBy: new mongoose.Types.ObjectId(agentId), // Fixed: mongoose.Types.ObjectId
+    };
+    
+    if (status) {
+      filter.status = status;
+    }
+    console.log(filter);
+
+    const sellers = await Seller.find(filter)
+      .select("businessInfo firstName lastName avatar email status") // Added status to selection
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limitNum);
+
+
+    const totalSellers = await Seller.countDocuments(filter);
+    const totalPages = Math.ceil(totalSellers / limitNum);
+
+    res.status(200).json({
+      success: true,
+      count: totalSellers,
+      sellers,
+      pagination: {
+        currentPage: pageNum,
+        totalPages,
+        hasNext: pageNum < totalPages,
+        hasPrev: pageNum > 1,
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching sellers by agent:", error); // Better error logging
+    res.status(500).json({
+      success: false,
+      message: "Server Error",
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   registerSeller,
   getSellerProfile,
@@ -899,5 +960,6 @@ module.exports = {
   updateDocumentStatus,
   updateSellerStatus,
   uploadProfileAvatar,
-  manageSellerCapabilities
+  manageSellerCapabilities,
+  getSellersByAgentId,
 };

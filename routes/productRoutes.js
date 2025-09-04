@@ -163,7 +163,7 @@ router.post(
 // @desc    Delete specific image from product
 // @access  Seller (own products) or Admin
 router.delete(
-  "/products/:id/images/:imageId",
+  "/:id/images/:imageId",
   authenticateToken,
   authorize(["seller", "admin"]),
   async (req, res) => {

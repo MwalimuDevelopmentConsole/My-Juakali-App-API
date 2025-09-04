@@ -12,6 +12,7 @@ const { authenticateToken, isClient } = require("../middleware/auth");
 router
   .post("/register", sellerController.registerSeller)
   .get("/profile", authenticateToken, sellerController.getSellerProfile)
+  .get("/by-agent", sellerController.getSellersByAgentId)
   .get("/seller-details/:sellerId", sellerController.getSellerOverview)
   .patch(
     "/update-profile",
