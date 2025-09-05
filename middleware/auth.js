@@ -3,11 +3,13 @@ const jwt = require("jsonwebtoken");
 const Buyer = require("../models/Buyer");
 const Seller = require("../models/Seller");
 const Admin = require("../models/Admin");
+const Marketer = require("../models/Marketer");
 
 const userTypes = {
   buyer: Buyer,
   seller: Seller,
   admin: Admin,
+  marketer: Marketer
 };
 
 // Response formatter
@@ -67,7 +69,6 @@ const authenticateToken = async (req, res, next) => {
     user.id = user._id; // Add user ID to request for further use
     user.role = user.userType;
 
-    // console.log("authorized")
 
     req.user = user;
     next();
@@ -100,6 +101,9 @@ const optionalAuth = async (req, res, next) => {
 
       if (user && user.isActive) {
         req.user = user;
+        req.user.userType = capitalizeFirstLetter(decoded.userType);
+        req.user.id = user._id;
+        req.user.role = req.user.userType;
       }
     }
 

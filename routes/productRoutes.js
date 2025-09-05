@@ -20,10 +20,12 @@ const {
   deleteProduct,
   getSellerProducts,
   searchProducts,
+  getProductsByAdmin,
+  updateProductStatus
 } = require("../controllers/productsController");
 
 // Import middleware
-const { authenticateToken, authorize } = require("../middleware/auth");
+const { authenticateToken, authorize, optionalAuth } = require("../middleware/auth");
 const Product = require("../models/Product");
 const FavoritedProduct = require("../models/FavoritedProduct");
 const { handleMulterError, upload } = require("../config/multer");
@@ -46,10 +48,14 @@ router.get("/search", searchProducts);
 // @access  Public
 router.get("/", getProducts);
 
+router.get("/admin", authenticateToken, authorize(["admin", "super_admin"]), getProductsByAdmin);
+
+router.patch("/update-status", authenticateToken, authorize(["admin", "super_admin"]), updateProductStatus);
+
 // @route   GET /api/products/:id
 // @desc    Get single product by ID
 // @access  Public
-router.get("/:id", getProduct);
+router.get("/:id", optionalAuth, getProduct);
 
 // @route   POST /api/products
 // @desc    Create new product

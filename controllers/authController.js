@@ -10,6 +10,7 @@ const userTypes = {
   buyer: Buyer,
   seller: Seller,
   admin: Admin,
+  marketer: Marketer,
 };
 
 // Error handling wrapper
@@ -137,6 +138,7 @@ const sellerBuyerAgentLogin = asyncHandler(async (req, res) => {
   const userResponse = user.toObject();
   delete userResponse.password;
 
+
   const response = formatResponse(
     true,
     {
@@ -233,6 +235,7 @@ const refreshToken = asyncHandler(async (req, res) => {
       process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET
     );
 
+
     // Get user from database to ensure they still exist and are active
     const user = await userTypes[decoded.userType]
       .findById(decoded.id)
@@ -273,6 +276,7 @@ const refreshToken = asyncHandler(async (req, res) => {
       {
         user,
         accessToken: tokens.accessToken,
+        userType: decoded.userType,
       },
       "Token refreshed successfully"
     );
@@ -297,6 +301,7 @@ const refreshToken = asyncHandler(async (req, res) => {
 // Logout
 const logout = asyncHandler(async (req, res) => {
   const { refreshToken } = req.cookies;
+
 
   if (!refreshToken) {
     const response = formatResponse(false, null, "No refresh token found", 200);
@@ -422,5 +427,5 @@ module.exports = {
   changePassword,
   generateTokens,
   sellerBuyerAgentLogin,
-  formatResponse
+  formatResponse,
 };

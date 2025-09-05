@@ -52,6 +52,12 @@ const marketerSchema = new Schema(
       maxlength: 500,
     },
 
+    role: {
+      type: String,
+      enum: ["marketer", "senior_marketer"],
+      default: "marketer",
+    },
+
     // Location
     location: {
       county: {

@@ -197,6 +197,7 @@ const loginMarketer = async (req, res) => {
 // @access  Marketer only
 const getMarketerDashboard = async (req, res) => {
   try {
+    console.log("inside dashboard")
     const marketerId = req.user.id;
 
     const marketer = await Marketer.findById(marketerId);
@@ -275,10 +276,10 @@ const getMarketerDashboard = async (req, res) => {
       referralLink: `${process.env.FRONTEND_URL}/register?ref=${marketer.marketerInfo.referralCode}`,
     });
   } catch (error) {
+    console.log(error)
     res.status(500).json({
       success: false,
       message: "Server Error",
-      error: error.message,
     });
   }
 };
@@ -305,7 +306,6 @@ const getMarketerProfile = async (req, res) => {
     res.status(500).json({
       success: false,
       message: "Server Error",
-      error: error.message,
     });
   }
 };
@@ -460,6 +460,7 @@ const getMarketerById = async (req, res) => {
       marketer,
     });
   } catch (error) {
+    console.error(error);
     res.status(500).json({
       success: false,
       message: "Something went wrong",

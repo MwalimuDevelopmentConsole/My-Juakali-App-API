@@ -9,17 +9,17 @@ router
   .post("/login", marketerController.loginMarketer)
   .post("/register", authenticateToken, marketerController.registerMarketer)
   .get("/profile", authenticateToken, marketerController.getMarketerProfile)
-  .get("/:marketerId", authenticateToken, marketerController.getMarketerById)
   .patch(
     "/update-profile",
     authenticateToken,
     marketerController.updateMarketerProfile
   )
   .get("/commission-history", marketerController.getCommissionHistory)
-  .post(
-    "/dashboard",
+  .get("/overview", authenticateToken, marketerController.getMarketerDashboard)
+  .get(
+    "/:marketerId/profile",
     authenticateToken,
-    marketerController.getMarketerDashboard
+    marketerController.getMarketerById
   );
 
 module.exports = router;

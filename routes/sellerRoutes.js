@@ -13,7 +13,9 @@ router
   .post("/register", sellerController.registerSeller)
   .get("/profile", authenticateToken, sellerController.getSellerProfile)
   .get("/by-agent", sellerController.getSellersByAgentId)
+  .get("/",authenticateToken, sellerController.getAllSellers)
   .get("/seller-details/:sellerId", sellerController.getSellerOverview)
+  .get("/seller-details/admin/:sellerId", sellerController.getSellerOverviewByAdmin)
   .patch(
     "/update-profile",
     authenticateToken,

@@ -2,6 +2,7 @@ const UserSubscription = require("../models/SellerSubscription");
 const Seller = require("../models/Seller");
 const Category = require("../models/Category");
 const Product = require("../models/Product");
+const { logActivity } = require("./activityController");
 
 // @desc    Get all products with smart ranking and filtering
 // @access  Public
@@ -412,7 +413,10 @@ const getProduct = async (req, res) => {
     }
 
     // Check if product is active and seller is active
-    if (product.status !== "active" || product.seller.status !== "active") {
+    if (
+      (product.status !== "active" || product.seller.status !== "active") &&
+      !["Seller", "Admin"].includes(req?.user?.userType)
+    ) {
       return res.status(404).json({
         success: false,
         message: "Product not available",
@@ -634,7 +638,7 @@ const updateProduct = async (req, res) => {
       serviceInfo,
       status,
       primaryCategory,
-      secondaryCategory
+      secondaryCategory,
     } = req.body;
 
     // Handle image uploads (if any new images)
@@ -1039,6 +1043,103 @@ const searchProducts = async (req, res) => {
   }
 };
 
+const getProductsByAdmin = async (req, res) => {
+  try {
+    const { page = 1, limit = 20, status, sellerId, categoryId } = req.query;
+
+    const filter = {};
+    if (status) filter.status = status;
+    if (sellerId) filter.seller = sellerId;
+    if (categoryId) filter.primaryCategory = categoryId;
+
+    const pageNum = parseInt(page);
+    const limitNum = parseInt(limit);
+    const skip = (pageNum - 1) * limitNum;
+
+    const products = await Product.find(filter)
+      .populate("seller", "firstName fullName lastName businessInfo")
+      .populate("primaryCategory", "name")
+      .sort({ createdAt: -1 })
+      .skip(skip)
+      .limit(limitNum);
+
+    const totalProducts = await Product.countDocuments(filter);
+    const totalPages = Math.ceil(totalProducts / limitNum);
+
+    res.status(200).json({
+      success: true,
+      count: products.length,
+      totalProducts,
+      products,
+      pagination: {
+        currentPage: pageNum,
+        totalPages,
+        hasNext: pageNum < totalPages,
+        hasPrev: pageNum > 1,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Server Error",
+      error: error.message,
+    });
+  }
+};
+
+const updateProductStatus = async (req, res) => {
+  const { productId, status, reason = "" } = req.body;
+  console.log(req.body);
+  if (!productId || !status)
+    return res
+      .status(400)
+      .json({ success: false, message: "Product ID and status are required" });
+
+  if (
+    ![
+      "active",
+      "inactive",
+      "pending_approval",
+      "rejected",
+      "suspended",
+    ].includes(status)
+  )
+    return res
+      .status(400)
+      .json({ success: false, message: "Invalid status value" });
+
+  if (!req.user.id)
+    return res.status(403).json({ success: false, message: "Unauthorized" });
+
+  try {
+    const product = await Product.findById(productId);
+    if (!product)
+      return res
+        .status(404)
+        .json({ success: false, message: "Product not found" });
+
+    product.status = status;
+    product.suspensionReason = reason;
+    await product.save();
+
+    console.log(product);
+
+    res
+      .status(200)
+      .json({ message: "Product status updated successfully", success: true });
+    const user = { userType: req.user.userType, _id: req.user.id };
+
+    await logActivity(user, "update_product_status", {
+      productId,
+      status,
+      reason,
+    });
+  } catch (error) {
+    console.log(error);
+    res.status(500).json({ message: "Something went nwrong", success: false });
+  }
+};
+
 module.exports = {
   getProducts,
   getProduct,
@@ -1047,4 +1148,6 @@ module.exports = {
   deleteProduct,
   getSellerProducts,
   searchProducts,
+  getProductsByAdmin,
+  updateProductStatus,
 };

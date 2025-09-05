@@ -6,7 +6,7 @@ const Marketer = require("../models/Marketer");
 const crypto = require("crypto");
 const bcrypt = require("bcryptjs");
 const Product = require("../models/Product");
-const mongoose = require('mongoose'); 
+const { default: mongoose } = require("mongoose");
 
 // @desc    Register new seller
 // @route   POST /api/sellers/register
@@ -673,6 +673,63 @@ const getSellerOverview = async (req, res) => {
   }
 };
 
+const getSellerOverviewByAdmin = async (req, res) => {
+  try {
+    const { sellerId } = req.params;
+
+    const sellerDoc = await Seller.findById(sellerId)
+      .select(
+        `
+      -password
+      -emailVerificationToken
+      `
+      )
+      .populate({
+        path: "currentSubscription",
+        select: "plan status",
+        populate: {
+          path: "plan",
+          select: "name planType features badge",
+        },
+      })
+      // .lean({virtuals: true})
+      .exec();
+
+    if (!sellerDoc) {
+      return res.status(404).json({
+        success: false,
+        message: "Seller not found",
+      });
+    }
+
+    const seller = sellerDoc.toObject({ virtuals: true });
+
+    const activeProductsCount = await Product.countDocuments({
+      seller: seller._id,
+      status: "active",
+    });
+
+    seller.stats = {
+      profileViews: seller.activity.profileViews, // Show incremented count
+      totalProducts: seller.activity.totalProducts,
+      activeProducts: activeProductsCount,
+      memberSince: seller.createdAt,
+    };
+
+    res.status(200).json({
+      success: true,
+      seller,
+    });
+  } catch (error) {
+    console.error("Error fetching seller overview:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server Error",
+      error: error.message,
+    });
+  }
+};
+
 const removeVerificationDocument = async (req, res) => {
   try {
     const { sellerId, documentType, documentId } = req.body;
@@ -726,26 +783,53 @@ const removeVerificationDocument = async (req, res) => {
 
 const updateDocumentStatus = async (req, res) => {
   try {
-    const {
-      sellerId,
-      documentType,
-      documentId,
-      status,
-      rejectionReason,
-    } = req.body;
+    const { sellerId, documentType, documents } = req.body;
 
-    if (!["identity", "business"].includes(documentType)) {
+    // Validate required fields
+    if (!sellerId) {
+      return res.status(400).json({
+        success: false,
+        message: "Seller ID is required",
+      });
+    }
+
+    if (!documentType || !["identity", "business"].includes(documentType)) {
       return res.status(400).json({
         success: false,
         message: 'Invalid document type. Must be "identity" or "business"',
       });
     }
 
-    if (!["approved", "rejected"].includes(status)) {
+    if (!documents || !Array.isArray(documents) || documents.length === 0) {
       return res.status(400).json({
         success: false,
-        message: 'Invalid status. Must be "approved" or "rejected"',
+        message: "Documents array is required and cannot be empty",
       });
+    }
+
+    // Validate each document in the array
+    for (const doc of documents) {
+      if (!doc.documentId || !doc.status) {
+        return res.status(400).json({
+          success: false,
+          message: "Each document must have documentId and status",
+        });
+      }
+
+      if (!["approved", "rejected", "pending"].includes(doc.status)) {
+        return res.status(400).json({
+          success: false,
+          message:
+            'Invalid status. Must be "approved", "rejected", or "pending"',
+        });
+      }
+
+      if (doc.status === "rejected" && !doc.rejectionReason?.trim()) {
+        return res.status(400).json({
+          success: false,
+          message: "Rejection reason is required for rejected documents",
+        });
+      }
     }
 
     const seller = await Seller.findById(sellerId);
@@ -756,34 +840,87 @@ const updateDocumentStatus = async (req, res) => {
       });
     }
 
-    const document = seller.verification[documentType].documents.find(
-      (doc) => doc._id.toString() === documentId
-    );
+    const updatedDocuments = [];
+    const notFoundDocuments = [];
 
-    if (!document) {
-      return res.status(404).json({
-        success: false,
-        message: "Document not found",
+    // Update each document
+    for (const docUpdate of documents) {
+      const document = seller.verification[documentType].documents.find(
+        (doc) => doc._id.toString() === docUpdate.documentId
+      );
+
+      if (!document) {
+        notFoundDocuments.push(docUpdate.documentId);
+        continue;
+      }
+
+      // Update document status
+      document.status = docUpdate.status;
+
+      if (docUpdate.status === "approved") {
+        document.verifiedAt = new Date();
+        document.verifiedBy = req.user.id; // Admin ID from auth middleware
+        // Clear any previous rejection reason
+        document.rejectionReason = undefined;
+      } else if (docUpdate.status === "rejected") {
+        document.rejectionReason = docUpdate.rejectionReason.trim();
+        // Clear verification fields
+        document.verifiedAt = undefined;
+        document.verifiedBy = undefined;
+      } else if (docUpdate.status === "pending") {
+        // Clear both approval and rejection fields
+        document.verifiedAt = undefined;
+        document.verifiedBy = undefined;
+        document.rejectionReason = undefined;
+      }
+
+      updatedDocuments.push({
+        documentId: document._id,
+        type: document.type,
+        status: document.status,
+        rejectionReason: document.rejectionReason,
       });
     }
 
-    document.status = status;
-    if (status === "approved") {
-      document.verifiedAt = new Date();
-      document.verifiedBy = req.user.id; // Admin ID from auth middleware
-      seller.verification[documentType].verified = true;
-    } else if (status === "rejected") {
-      document.rejectionReason = rejectionReason || "No reason provided";
+    // Check if there were any documents not found
+    if (notFoundDocuments.length > 0) {
+      return res.status(404).json({
+        success: false,
+        message: `Documents not found: ${notFoundDocuments.join(", ")}`,
+      });
+    }
+
+    // Check if ALL documents of this type are now approved
+    const allDocuments = seller.verification[documentType].documents;
+    const allApproved = allDocuments.every((doc) => doc.status === "approved");
+
+    // Update verification status based on all documents
+    seller.verification[documentType].verified = allApproved;
+
+    // If not all approved, also clear the verification timestamp
+    if (!allApproved) {
+      seller.verification[documentType].verifiedAt = undefined;
+    } else {
+      seller.verification[documentType].verifiedAt = new Date();
     }
 
     await seller.save();
 
     res.status(200).json({
       success: true,
-      message: `Document ${status} successfully`,
-      document,
+      message: `${updatedDocuments.length} document(s) updated successfully`,
+      data: {
+        updatedDocuments,
+        verificationStatus: {
+          [documentType]: {
+            verified: seller.verification[documentType].verified,
+            verifiedAt: seller.verification[documentType].verifiedAt,
+          },
+        },
+      },
     });
   } catch (error) {
+    console.error("Error updating document status:", error);
     res.status(500).json({
       success: false,
       message: "Server Error",
@@ -912,7 +1049,7 @@ const getSellersByAgentId = async (req, res) => {
     let filter = {
       referredBy: new mongoose.Types.ObjectId(agentId), // Fixed: mongoose.Types.ObjectId
     };
-    
+
     if (status) {
       filter.status = status;
     }
@@ -923,7 +1060,6 @@ const getSellersByAgentId = async (req, res) => {
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limitNum);
-
 
     const totalSellers = await Seller.countDocuments(filter);
     const totalPages = Math.ceil(totalSellers / limitNum);
@@ -940,7 +1076,64 @@ const getSellersByAgentId = async (req, res) => {
       },
     });
   } catch (error) {
-    console.error("Error fetching sellers by agent:", error); // Better error logging
+    console.error("Error fetching sellers by agent:", error);
+  }
+};
+
+const getAllSellers = async (req, res) => {
+  const {
+    page = 1,
+    limit = 20,
+    search = "",
+    status,
+    sortBy,
+    sortOrder,
+    marketerId,
+  } = req.query;
+
+  const query = {};
+  if (search) {
+    query.$or = [
+      { firstName: { $regex: search, $options: "i" } },
+      { lastName: { $regex: search, $options: "i" } },
+      { email: { $regex: search, $options: "i" } },
+      { phone: { $regex: search, $options: "i" } },
+      { "businessInfo.businessName": { $regex: search, $options: "i" } },
+    ];
+  }
+  if (status) {
+    query.status = status;
+  }
+
+  const sortOptions = {};
+  if (sortBy) {
+    sortOptions[sortBy] = sortOrder === "desc" ? -1 : 1;
+  } else {
+    sortOptions.createdAt = -1; // Default sort by newest
+  }
+  if (marketerId) {
+    query.referredBy = mongoose.Types.ObjectId(marketerId);
+  }
+
+  try {
+    const sellers = await Seller.find(query)
+      .select(
+        "firstName lastName email phone businessInfo.businessName status isActive verificationScore createdAt"
+      )
+      .sort(sortOptions)
+      .skip((page - 1) * limit)
+      .limit(parseInt(limit));
+
+    const totalSellers = await Seller.countDocuments(query);
+
+    res.status(200).json({
+      success: true,
+      page: parseInt(page),
+      totalPages: Math.ceil(totalSellers / limit),
+      totalSellers,
+      sellers,
+    });
+  } catch (error) {
     res.status(500).json({
       success: false,
       message: "Server Error",
@@ -962,4 +1155,6 @@ module.exports = {
   uploadProfileAvatar,
   manageSellerCapabilities,
   getSellersByAgentId,
+  getAllSellers,
+  getSellerOverviewByAdmin,
 };

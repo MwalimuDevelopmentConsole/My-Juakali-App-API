@@ -670,6 +670,7 @@ const socketAuthMiddleware = async (socket, next) => {
   try {
     const { token, userId, userType } = socket.handshake.auth;
 
+
     if (!token || !userId || !userType) {
       return next(new Error("Missing authentication data"));
     }

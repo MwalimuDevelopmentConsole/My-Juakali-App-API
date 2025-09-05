@@ -1,5 +1,6 @@
 const Admin = require("../models/Admin");
 const Buyer = require("../models/Buyer");
+const Marketer = require("../models/Marketer");
 const Seller = require("../models/Seller");
 
 /**
@@ -10,6 +11,7 @@ const getUserModel = (userType) => {
     buyer: Buyer,
     seller: Seller,
     admin: Admin,
+    marketer: Marketer
   };
   return models[userType.toLowerCase()] || null;
 };
