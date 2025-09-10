@@ -1,6 +1,41 @@
 const Marketer = require("../models/Marketer");
 const Seller = require("../models/Seller");
 const Commission = require("../models/Commission");
+const crypto = require("crypto");
+const jwt = require("jsonwebtoken");
+
+// generate refarral code
+const generateUniqueReferralCode = async (
+  Model,
+  length = 10,
+  maxRetries = 5
+) => {
+  const characters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+
+  for (let attempt = 0; attempt < maxRetries; attempt++) {
+    let code = "";
+    for (let i = 0; i < length; i++) {
+      code += characters.charAt(Math.floor(Math.random() * characters.length));
+    }
+
+    // Check if code already exists in database
+    const exists = await Model.findOne({
+      "marketerInfo.referralCode": code,
+    });
+
+    if (!exists) {
+      return code;
+    }
+  }
+
+  // Fallback: Use timestamp + random if all retries failed
+  return generateTimestampBasedCode();
+};
+const generateTimestampBasedCode = () => {
+  const timestamp = Date.now().toString(36).toUpperCase(); // Convert to base36
+  const random = crypto.randomBytes(3).toString("hex").toUpperCase();
+  return `${timestamp}${random}`.substring(0, 10);
+};
 
 // @desc    Register new marketer
 // @route   POST /api/marketers/register
@@ -43,6 +78,7 @@ const registerMarketer = async (req, res) => {
         message: "Marketer with this email or phone already exists",
       });
     }
+    const referralCode = await generateUniqueReferralCode(Marketer, 10);
 
     const marketerData = {
       email,
@@ -52,6 +88,11 @@ const registerMarketer = async (req, res) => {
       lastName,
       location,
       bio,
+      marketerInfo: {
+        referralCode: referralCode,
+        totalReferrals: 0,
+        totalCommission: 0,
+      },
       verification: {
         email: {
           token: crypto.randomBytes(32).toString("hex"),
@@ -197,7 +238,7 @@ const loginMarketer = async (req, res) => {
 // @access  Marketer only
 const getMarketerDashboard = async (req, res) => {
   try {
-    console.log("inside dashboard")
+    console.log("inside dashboard");
     const marketerId = req.user.id;
 
     const marketer = await Marketer.findById(marketerId);
@@ -276,7 +317,7 @@ const getMarketerDashboard = async (req, res) => {
       referralLink: `${process.env.FRONTEND_URL}/register?ref=${marketer.marketerInfo.referralCode}`,
     });
   } catch (error) {
-    console.log(error)
+    console.log(error);
     res.status(500).json({
       success: false,
       message: "Server Error",
@@ -315,39 +356,23 @@ const getMarketerProfile = async (req, res) => {
 // @access  Marketer only
 const updateMarketerProfile = async (req, res) => {
   try {
-    const { firstName, lastName, bio, location, paymentInfo, communication } =
-      req.body;
+    const {
+      firstName,
+      lastName,
+      bio,
+      location,
+      paymentInfo,
+      communication,
+      marketerId,
+    } = req.body;
 
-    const marketer = await Marketer.findById(req.user.id);
+    const marketer = await Marketer.findById(marketerId).exec();
 
     if (!marketer) {
       return res.status(404).json({
         success: false,
         message: "Marketer not found",
       });
-    }
-
-    // Handle avatar upload
-    if (req.file) {
-      if (marketer.avatar && marketer.avatar.publicId) {
-        await cloudinary.uploader.destroy(marketer.avatar.publicId);
-      }
-
-      const result = await cloudinary.uploader.upload(req.file.path, {
-        folder: "myjuakali/marketers/avatars",
-        transformation: [
-          { width: 300, height: 300, crop: "fill" },
-          { quality: "auto:good" },
-        ],
-      });
-
-      marketer.avatar = {
-        url: result.secure_url,
-        publicId: result.public_id,
-        alt: `${firstName || marketer.firstName} ${
-          lastName || marketer.lastName
-        }`,
-      };
     }
 
     // Update fields
@@ -468,6 +493,236 @@ const getMarketerById = async (req, res) => {
   }
 };
 
+const getAllMarketers = async (req, res) => {
+  try {
+    const {
+      page = 1,
+      limit = 10,
+      status,
+      role,
+      county,
+      isActive,
+      verified,
+      search,
+      sortBy = "createdAt",
+      sortOrder = "desc",
+      fields,
+    } = req.query;
+
+    // Build filter object
+    const filter = {};
+
+    // Status filter
+    if (status) {
+      filter.status = status;
+    }
+
+    // Role filter
+    if (role) {
+      filter.role = role;
+    }
+
+    // County filter
+    if (county) {
+      filter["location.county"] = new RegExp(county, "i");
+    }
+
+    // Active status filter
+    if (isActive !== undefined) {
+      filter.isActive = isActive === "true";
+    }
+
+    // Email verification filter
+    if (verified !== undefined) {
+      filter["verification.email.verified"] = verified === "true";
+    }
+
+    // Search functionality
+    if (search) {
+      const searchRegex = new RegExp(search, "i");
+      filter.$or = [
+        { firstName: searchRegex },
+        { lastName: searchRegex },
+        { email: searchRegex },
+        { phone: searchRegex },
+        { "marketerInfo.referralCode": searchRegex },
+      ];
+    }
+
+    // Pagination
+    const skip = (parseInt(page) - 1) * parseInt(limit);
+    const limitNum = parseInt(limit);
+
+    // Sort options
+    const sortOptions = {};
+    const validSortFields = [
+      "createdAt",
+      "updatedAt",
+      "firstName",
+      "lastName",
+      "email",
+      "status",
+      "marketerInfo.performance.totalReferrals",
+      "marketerInfo.performance.totalCommissionsEarned",
+      "activity.lastLogin",
+    ];
+
+    if (validSortFields.includes(sortBy)) {
+      sortOptions[sortBy] = sortOrder === "asc" ? 1 : -1;
+    } else {
+      sortOptions.createdAt = -1;
+    }
+
+    // Field selection (exclude sensitive fields by default)
+    let selectFields =
+      fields ||
+      "-password -nationalId -verification.email.token -verification.phone.code -security";
+
+    // Build query
+    const query = Marketer.find(filter)
+      .select(selectFields)
+      .sort(sortOptions)
+      .skip(skip)
+      .limit(limitNum)
+      .populate("assignedManager", "firstName lastName email");
+
+    // Execute query
+    const marketers = await query.exec();
+
+    // Get total count for pagination
+    const totalCount = await Marketer.countDocuments(filter);
+    const totalPages = Math.ceil(totalCount / limitNum);
+
+    // Calculate statistics
+    const stats = await Marketer.aggregate([
+      { $match: filter },
+      {
+        $group: {
+          _id: null,
+          totalMarketers: { $sum: 1 },
+          activeMarketers: {
+            $sum: { $cond: [{ $eq: ["$status", "active"] }, 1, 0] },
+          },
+          pendingMarketers: {
+            $sum: { $cond: [{ $eq: ["$status", "pending"] }, 1, 0] },
+          },
+          verifiedMarketers: {
+            $sum: {
+              $cond: [{ $eq: ["$verification.email.verified", true] }, 1, 0],
+            },
+          },
+          totalReferrals: { $sum: "$marketerInfo.performance.totalReferrals" },
+          totalCommissions: {
+            $sum: "$marketerInfo.performance.totalCommissionsEarned",
+          },
+        },
+      },
+    ]);
+
+    res.status(200).json({
+      success: true,
+      message: "Marketers retrieved successfully",
+      data: {
+        marketers,
+        pagination: {
+          currentPage: parseInt(page),
+          totalPages,
+          totalCount,
+          limit: limitNum,
+          hasNextPage: parseInt(page) < totalPages,
+          hasPrevPage: parseInt(page) > 1,
+        },
+        statistics: stats[0] || {
+          totalMarketers: 0,
+          activeMarketers: 0,
+          pendingMarketers: 0,
+          verifiedMarketers: 0,
+          totalReferrals: 0,
+          totalCommissions: 0,
+        },
+        filters: {
+          status,
+          role,
+          county,
+          isActive,
+          verified,
+          search,
+          sortBy,
+          sortOrder,
+        },
+      },
+    });
+  } catch (error) {
+    console.error("Get all marketers error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server Error",
+    });
+  }
+};
+const updateMarketerStatus = async (req, res) => {
+  try {
+    const { marketerId } = req.params;
+    const { status } = req.body;
+
+    // Validation
+    if (!status) {
+      return res.status(400).json({
+        success: false,
+        message: "Status is required",
+      });
+    }
+
+    // Validate status value
+    const validStatuses = ["pending", "active", "suspended", "banned"];
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid status. Must be one of: ${validStatuses.join(", ")}`,
+      });
+    }
+
+    // Find marketer
+    const marketer = await Marketer.findById(marketerId).exec();
+    if (!marketer) {
+      return res.status(404).json({
+        success: false,
+        message: "Marketer not found",
+      });
+    }
+
+    // Store previous status for logging
+    const previousStatus = marketer.status;
+
+    // Update status
+    marketer.status = status;
+
+    // If suspending, set isActive to false
+    if (status === "suspended" || status === "banned") {
+      marketer.isActive = false;
+    }
+
+    // If activating, set isActive to true
+    if (status === "active") {
+      marketer.isActive = true;
+    }
+
+    // Save changes
+    await marketer.save();
+
+    res.status(200).json({
+      success: true,
+      message: `Marketer status updated from ${previousStatus} to ${status}`,
+    });
+  } catch (error) {
+    console.error("Update marketer status error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server Error",
+    });
+  }
+};
+
 module.exports = {
   registerMarketer,
   loginMarketer,
@@ -476,4 +731,6 @@ module.exports = {
   updateMarketerProfile,
   getCommissionHistory,
   getMarketerById,
+  getAllMarketers,
+  updateMarketerStatus
 };
