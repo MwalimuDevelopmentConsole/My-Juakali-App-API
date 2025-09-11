@@ -6,7 +6,7 @@ const allowedOrigins = [
   "https://myjuakali.com",
   "https://www.myjuakali.com",
   "https://www.craftoryllc.com",
-  "https://craftoryllc.com.com",
+  "https://craftoryllc.com",
   "https://admin.craftoryllc.com",
   "https://www.admin.craftoryllc.com",
   "http://192.168.100.45:5173",
