@@ -14,7 +14,13 @@ router
     authenticateToken,
     marketerController.updateMarketerProfile
   )
+  .patch(
+    "/:marketerId/update-status",
+    authenticateToken,
+    marketerController.updateMarketerStatus
+  )
   .get("/commission-history", marketerController.getCommissionHistory)
+  .get("/all-marketers", authenticateToken, marketerController.getAllMarketers)
   .get("/overview", authenticateToken, marketerController.getMarketerDashboard)
   .get(
     "/:marketerId/profile",
