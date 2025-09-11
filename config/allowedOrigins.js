@@ -5,6 +5,10 @@ const allowedOrigins = [
   "http://192.168.100.55:5173",
   "https://myjuakali.com",
   "https://www.myjuakali.com",
+  "https://www.craftoryllc.com",
+  "https://craftoryllc.com.com",
+  "https://admin.craftoryllc.com",
+  "https://www.admin.craftoryllc.com",
   "http://192.168.100.45:5173",
   "https://j5rgfbf5-5173.euw.devtunnels.ms"
 ];
