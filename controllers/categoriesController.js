@@ -1,12 +1,12 @@
 const Category = require("../models/Category");
+const Product = require("../models/Product");
 const cloudinary = require("cloudinary").v2;
 
-// @desc Get all categories with nested subcategories
 const getCategories = async (req, res) => {
   try {
     const { level, parent, includeInactive = false, nested = true } = req.query;
 
-    // If specific parent or level is requested, use original logic
+    // If specific parent or level is requested, use flat structure
     if (parent || (level !== undefined && level !== "0")) {
       return getSingleLevelCategories(req, res);
     }
@@ -16,9 +16,10 @@ const getCategories = async (req, res) => {
       return getNestedCategories(req, res, includeInactive);
     }
 
-    // Fallback to original flat structure
+    // Fallback to flat structure
     return getSingleLevelCategories(req, res);
   } catch (error) {
+    console.error("Error in getCategories:", error);
     res.status(500).json({
       success: false,
       message: "Server Error",
@@ -27,19 +28,131 @@ const getCategories = async (req, res) => {
   }
 };
 
-// Get categories in nested structure
-const getNestedCategories = async (req, res, includeInactive) => {
+/**
+ * Calculate product counts for categories
+ * Counts products where category is primaryCategory OR in secondaryCategories
+ */
+const calculateProductCounts = async (categoryIds) => {
   try {
-    let filter = {
-      parentCategory: null, // Get only parent categories
+    const counts = await Product.aggregate([
+      {
+        $match: {
+          status: "active",
+          $or: [
+            { primaryCategory: { $in: categoryIds } },
+            { secondaryCategories: { $in: categoryIds } },
+          ],
+        },
+      },
+      {
+        $facet: {
+          primaryCounts: [
+            { $group: { _id: "$primaryCategory", count: { $sum: 1 } } },
+          ],
+          secondaryCounts: [
+            { $unwind: "$secondaryCategories" },
+            { $group: { _id: "$secondaryCategories", count: { $sum: 1 } } },
+          ],
+        },
+      },
+    ]);
+
+    // Merge primary and secondary counts
+    const countMap = {};
+
+    counts[0].primaryCounts.forEach((item) => {
+      const id = item._id.toString();
+      countMap[id] = (countMap[id] || 0) + item.count;
+    });
+
+    counts[0].secondaryCounts.forEach((item) => {
+      const id = item._id.toString();
+      countMap[id] = (countMap[id] || 0) + item.count;
+    });
+
+    return countMap;
+  } catch (error) {
+    console.error("Error calculating product counts:", error);
+    return {};
+  }
+};
+
+/**
+ * Get all descendant category IDs (subcategories, sub-subcategories, etc.)
+ */
+const getDescendantCategoryIds = async (categoryId) => {
+  const descendants = [];
+  const queue = [categoryId];
+
+  while (queue.length > 0) {
+    const currentId = queue.shift();
+    const children = await Category.find({ parentCategory: currentId }).select(
+      "_id"
+    );
+
+    children.forEach((child) => {
+      descendants.push(child._id);
+      queue.push(child._id);
+    });
+  }
+
+  return descendants;
+};
+
+/**
+ * Add product counts to categories (including subcategory counts for parents)
+ */
+const addProductCountsToCategories = async (categories, productCountMap) => {
+  const categoriesWithCounts = await Promise.all(
+    categories.map(async (category) => {
+      const categoryObj = category.toObject ? category.toObject() : category;
+      const categoryId = categoryObj._id.toString();
+
+      // Direct product count for this category
+      let directCount = productCountMap[categoryId] || 0;
+
+      // If category has subcategories, add their product counts too
+      if (categoryObj.subcategories && categoryObj.subcategories.length > 0) {
+        // Get all descendant IDs
+        const descendantIds = await getDescendantCategoryIds(categoryObj._id);
+
+        // Sum up all descendant counts
+        const descendantCount = descendantIds.reduce((sum, descId) => {
+          return sum + (productCountMap[descId.toString()] || 0);
+        }, 0);
+
+        categoryObj.productCount = directCount + descendantCount;
+
+        // Recursively add counts to subcategories
+        if (categoryObj.subcategories.length > 0) {
+          categoryObj.subcategories = await addProductCountsToCategories(
+            categoryObj.subcategories,
+            productCountMap
+          );
+        }
+      } else {
+        categoryObj.productCount = directCount;
+      }
+
+      return categoryObj;
+    })
+  );
+
+  return categoriesWithCounts;
+};
+
+/**
+ * Get categories in nested structure
+ */
+const getNestedCategories = async (req, res, includeInactive = false) => {
+  try {
+    const query = {
+      level: 0,
+      ...(includeInactive ? {} : { isActive: true }),
     };
 
-    if (!includeInactive) {
-      filter.isActive = true;
-    }
-
-    // Recursively populate subcategories at all levels
-    const categories = await Category.find(filter)
+    // Get parent categories and populate subcategories
+    const categories = await Category.find(query)
       .populate({
         path: "subcategories",
         match: includeInactive ? {} : { isActive: true },
@@ -48,110 +161,92 @@ const getNestedCategories = async (req, res, includeInactive) => {
           path: "subcategories",
           match: includeInactive ? {} : { isActive: true },
           options: { sort: { sortOrder: 1, name: 1 } },
-          populate: {
-            path: "subcategories",
-            match: includeInactive ? {} : { isActive: true },
-            options: { sort: { sortOrder: 1, name: 1 } },
-          },
         },
       })
-      .sort({ sortOrder: 1, name: 1 });
+      .sort({ sortOrder: 1, name: 1 })
+      .lean();
+
+    // Get all category IDs for product count calculation
+    const allCategoryIds = [];
+    const collectCategoryIds = (cats) => {
+      cats.forEach((cat) => {
+        allCategoryIds.push(cat._id);
+        if (cat.subcategories && cat.subcategories.length > 0) {
+          collectCategoryIds(cat.subcategories);
+        }
+      });
+    };
+    collectCategoryIds(categories);
+
+    // Calculate product counts for all categories
+    const productCountMap = await calculateProductCounts(allCategoryIds);
+
+    // Add product counts to categories
+    const categoriesWithCounts = await addProductCountsToCategories(
+      categories,
+      productCountMap
+    );
 
     res.status(200).json({
       success: true,
-      count: categories.length,
-      categories,
+      count: categoriesWithCounts.length,
+      categories: categoriesWithCounts,
     });
   } catch (error) {
-    throw error;
+    console.error("Error in getNestedCategories:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server Error",
+      error: error.message,
+    });
   }
 };
 
-// Get categories in flat structure (original logic)
+/**
+ * Get categories in flat structure (single level)
+ */
 const getSingleLevelCategories = async (req, res) => {
   try {
     const { level, parent, includeInactive = false } = req.query;
-    let filter = {};
 
-    // Filter by level (0 = parent, 1 = subcategory, etc.)
+    const query = {
+      ...(includeInactive === "true" ? {} : { isActive: true }),
+    };
+
+    // Add level or parent filter
     if (level !== undefined) {
-      filter.level = parseInt(level);
+      query.level = parseInt(level);
     }
-
-    // Filter by parent category
     if (parent) {
-      filter.parentCategory = parent;
-    } else if (level === undefined) {
-      // If no level specified and no parent, get only parent categories
-      filter.parentCategory = null;
+      query.parentCategory = parent === "null" ? null : parent;
     }
 
-    // Include inactive categories only for admins
-    if (!includeInactive) {
-      filter.isActive = true;
-    }
-
-    const categories = await Category.find(filter)
-      .populate("subcategories")
-      .sort({ sortOrder: 1, name: 1 });
-
-    res.status(200).json({
-      success: true,
-      count: categories.length,
-      categories,
-    });
-  } catch (error) {
-    throw error;
-  }
-};
-
-// Alternative approach: Build nested structure manually for more control
-const getCategoriesWithManualNesting = async (req, res) => {
-  try {
-    const { includeInactive = false } = req.query;
-
-    let filter = {};
-    if (!includeInactive) {
-      filter.isActive = true;
-    }
-
-    // Get all categories at once
-    const allCategories = await Category.find(filter)
+    const categories = await Category.find(query)
       .sort({ sortOrder: 1, name: 1 })
-      .lean(); // Use lean for better performance
+      .lean();
 
-    // Build nested structure
-    const categoryMap = new Map();
-    const rootCategories = [];
+    // Get category IDs for product count
+    const categoryIds = categories.map((cat) => cat._id);
 
-    // First pass: create map and identify root categories
-    allCategories.forEach((category) => {
-      categoryMap.set(category._id.toString(), {
+    // Calculate product counts
+    const productCountMap = await calculateProductCounts(categoryIds);
+
+    // Add product counts to categories
+    const categoriesWithCounts = categories.map((category) => {
+      const categoryId = category._id.toString();
+      return {
         ...category,
-        subcategories: [],
-      });
-
-      if (!category.parentCategory) {
-        rootCategories.push(categoryMap.get(category._id.toString()));
-      }
-    });
-
-    // Second pass: build parent-child relationships
-    allCategories.forEach((category) => {
-      if (category.parentCategory) {
-        const parent = categoryMap.get(category.parentCategory.toString());
-        if (parent) {
-          parent.subcategories.push(categoryMap.get(category._id.toString()));
-        }
-      }
+        productCount: productCountMap[categoryId] || 0,
+      };
     });
 
     res.status(200).json({
       success: true,
-      count: rootCategories.length,
-      categories: rootCategories,
+      count: categoriesWithCounts.length,
+      categories: categoriesWithCounts,
     });
   } catch (error) {
+    console.error("Error in getSingleLevelCategories:", error);
     res.status(500).json({
       success: false,
       message: "Server Error",

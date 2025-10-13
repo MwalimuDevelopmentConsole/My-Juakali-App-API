@@ -3,6 +3,7 @@ const Seller = require("../models/Seller");
 const Category = require("../models/Category");
 const Product = require("../models/Product");
 const { logActivity } = require("./activityController");
+const { default: mongoose } = require("mongoose");
 
 // @desc    Get all products with smart ranking and filtering
 // @access  Public
@@ -14,6 +15,7 @@ const getProducts = async (req, res) => {
       search,
       category,
       subcategory,
+      subCategory,
       type, // product or service
       condition,
       minPrice,
@@ -28,7 +30,8 @@ const getProducts = async (req, res) => {
       infiniteScroll = false,
       ...dynamicFilters // Any other filters based on category
     } = req.query;
-    console.log(category);
+    // console.log({category, subcategory, subCategory});
+
 
     // Build base filter
     let filter = {
@@ -49,11 +52,11 @@ const getProducts = async (req, res) => {
 
     // Category filtering
     if (category) {
-      filter.primaryCategory = category;
+      filter.primaryCategory = mongoose.Types.ObjectId(category);
     }
 
     if (subcategory) {
-      filter.secondaryCategories = { $in: [subcategory] };
+      filter.secondaryCategories = { $in: [mongoose.Types.ObjectId(subcategory)] };
     }
 
     // Type filtering
@@ -140,6 +143,7 @@ const getProducts = async (req, res) => {
     const pageNum = parseInt(page);
     const limitNum = parseInt(limit);
     const skip = (pageNum - 1) * limitNum;
+
 
     // Build aggregation pipeline for smart ranking
     const pipeline = [
