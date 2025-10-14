@@ -60,13 +60,13 @@ const generateTokens = (user, userType) => {
   const accessToken = jwt.sign(
     payload,
     process.env.JWT_SECRET,
-    { expiresIn: "15m" } // Short-lived access token
+    { expiresIn: "365d" } // Short-lived access token
   );
 
   const refreshToken = jwt.sign(
     payload,
     process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET,
-    { expiresIn: "7d" } // Long-lived refresh token
+    { expiresIn: "365d" } // Long-lived refresh token
   );
 
   return { accessToken, refreshToken };
@@ -78,7 +78,9 @@ const generateTokens = (user, userType) => {
 
 // Login
 const sellerBuyerAgentLogin = asyncHandler(async (req, res) => {
-  const { email, password } = req.body;
+  const { email, password, platform = "web" } = req.body;
+
+  console.log(req.body)
 
   if (!email || !password) {
     const response = formatResponse(
@@ -126,30 +128,43 @@ const sellerBuyerAgentLogin = asyncHandler(async (req, res) => {
   // Generate tokens
   const { accessToken, refreshToken } = generateTokens(user, userType);
 
+  console.log({accessToken, refreshToken})
+
   // Set refresh token in httpOnly cookie
-  res.cookie("refreshToken", refreshToken, {
-    httpOnly: true,
-    secure: true, // Use secure cookies in production
-    sameSite: "strict",
-    maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-  });
+  if (platform === "mobile") {
+    // Return tokens in response for mobile
+    const response = formatResponse(
+      true,
+      {
+        user,
+        accessToken: accessToken,
+        refreshToken: refreshToken,
+        userType: userType,
+      },
+      "Token refreshed successfully"
+    );
+    return res.status(response.statusCode).json(response);
+  } else {
+    // Update refresh token cookie for web
+    res.cookie("refreshToken", refreshToken, {
+      httpOnly: true,
+      secure: false,
+      sameSite: "strict",
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    });
 
-  // Remove password from response
-  const userResponse = user.toObject();
-  delete userResponse.password;
+    const response = formatResponse(
+      true,
+      {
+        user,
+        accessToken: accessToken,
+        userType: userType,
+      },
+      "Token refreshed successfully"
+    );
 
-
-  const response = formatResponse(
-    true,
-    {
-      user: userResponse,
-      accessToken,
-      userType,
-    },
-    "Login successful"
-  );
-
-  res.status(response.statusCode).json(response);
+    return res.status(response.statusCode).json(response);
+  }
 });
 
 const login = asyncHandler(async (req, res) => {
@@ -216,8 +231,16 @@ const login = asyncHandler(async (req, res) => {
 
 // Refresh Token
 const refreshToken = asyncHandler(async (req, res) => {
-  const { refreshToken } = req.cookies;
-
+  const { platform = "web" } = req.body;
+  
+  let refreshToken;
+  if(platform == "web"){
+    refreshToken = req.cookies.refreshToken
+  }else{
+    refreshToken=req.body.refreshToken
+  }
+  
+  console.log(platform, refreshToken, req.body)
   if (!refreshToken) {
     const response = formatResponse(
       false,
@@ -234,7 +257,6 @@ const refreshToken = asyncHandler(async (req, res) => {
       refreshToken,
       process.env.JWT_REFRESH_SECRET || process.env.JWT_SECRET
     );
-
 
     // Get user from database to ensure they still exist and are active
     const user = await userTypes[decoded.userType]
@@ -264,24 +286,40 @@ const refreshToken = asyncHandler(async (req, res) => {
     const tokens = generateTokens(user, decoded.userType);
 
     // Update refresh token cookie
-    res.cookie("refreshToken", tokens.refreshToken, {
-      httpOnly: true,
-      secure: true,
-      sameSite: "strict",
-      maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
-    });
+    if (platform === "mobile") {
+      // Return tokens in response for mobile
+      const response = formatResponse(
+        true,
+        {
+          user,
+          accessToken: tokens.accessToken,
+          refreshToken: tokens.refreshToken,
+          userType: decoded.userType,
+        },
+        "Token refreshed successfully"
+      );
+      return res.status(response.statusCode).json(response);
+    } else {
+      // Update refresh token cookie for web
+      res.cookie("refreshToken", tokens.refreshToken, {
+        httpOnly: true,
+        secure: true,
+        sameSite: "strict",
+        maxAge: 7 * 24 * 60 * 60 * 1000,
+      });
 
-    const response = formatResponse(
-      true,
-      {
-        user,
-        accessToken: tokens.accessToken,
-        userType: decoded.userType,
-      },
-      "Token refreshed successfully"
-    );
+      const response = formatResponse(
+        true,
+        {
+          user,
+          accessToken: tokens.accessToken,
+          userType: decoded.userType,
+        },
+        "Token refreshed successfully"
+      );
 
-    res.status(response.statusCode).json(response);
+      return res.status(response.statusCode).json(response);
+    }
   } catch (error) {
     // Clear invalid refresh token cookie
     res.clearCookie("refreshToken");
@@ -301,7 +339,6 @@ const refreshToken = asyncHandler(async (req, res) => {
 // Logout
 const logout = asyncHandler(async (req, res) => {
   const { refreshToken } = req.cookies;
-
 
   if (!refreshToken) {
     const response = formatResponse(false, null, "No refresh token found", 200);
@@ -367,9 +404,9 @@ const verifyToken = asyncHandler(async (req, res) => {
 
 // Change password with current password verification
 const changePassword = asyncHandler(async (req, res) => {
-  const { currentPassword, newPassword } = req.body;
+  const { currentPassword, password } = req.body;
 
-  if (!currentPassword || !newPassword) {
+  if (!currentPassword || !password) {
     const response = formatResponse(
       false,
       null,
@@ -379,7 +416,7 @@ const changePassword = asyncHandler(async (req, res) => {
     return res.status(response.statusCode).json(response);
   }
 
-  if (newPassword.length < 6) {
+  if (password.length < 6) {
     const response = formatResponse(
       false,
       null,
@@ -412,7 +449,7 @@ const changePassword = asyncHandler(async (req, res) => {
   }
 
   // Hash and update new password
-  user.password = await bcrypt.hash(newPassword, 12);
+  user.password = await bcrypt.hash(password, 12);
   await user.save();
 
   const response = formatResponse(true, null, "Password changed successfully");

@@ -24,7 +24,7 @@ router.post('/login', authRateLimit, authController.login);
 router.post('/seller-buyer-agent-login', authRateLimit, authController.sellerBuyerAgentLogin);
 
 // Refresh access token using refresh token from cookies
-router.get('/refresh', authController.refreshToken);
+router.post('/refresh', authController.refreshToken);
 
 // Logout (clears refresh token cookie)
 router.post('/logout', authController.logout);
@@ -37,6 +37,6 @@ router.post('/verify', authController.verifyToken);
 // ================================
 
 // Change password (requires authentication)
-router.post('/change-password', authenticateToken, isAuthenticated, authController.changePassword);
+router.patch('/change-password', authenticateToken,  authController.changePassword);
 
 module.exports = router;

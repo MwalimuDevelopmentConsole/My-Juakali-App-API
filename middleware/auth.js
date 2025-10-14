@@ -45,12 +45,12 @@ const authenticateToken = async (req, res, next) => {
     }
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-
+    
     // Get user from database to ensure they still exist and are active
     const user = await userTypes[decoded.userType]
-      .findById(decoded.id)
-      .select("-password");
-
+    .findById(decoded.id)
+    .select("-password");
+    
     if (!user) {
       const response = formatResponse(false, null, "User not found", 401);
       return res.status(response.statusCode).json(response);
@@ -65,7 +65,7 @@ const authenticateToken = async (req, res, next) => {
       );
       return res.status(response.statusCode).json(response);
     }
-    user.userType = capitalizeFirstLetter(decoded.userType); // Add userType to request for role checks
+    user.userType = decoded.userType; // Add userType to request for role checks
     user.id = user._id; // Add user ID to request for further use
     user.role = user.userType;
 
@@ -169,9 +169,10 @@ const isAuthenticated = (req, res, next) => {
     );
     return res.status(response.statusCode).json(response);
   }
+  console.log(user)
 
   if (
-    !["admin", "client", "buyer", "seller", "super_admin"].includes(
+    !["admin", "client", "buyer", "seller", "marketer", "super_admin"].includes(
       req.user.role
     )
   ) {
