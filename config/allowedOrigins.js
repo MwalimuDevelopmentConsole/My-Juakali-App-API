@@ -11,9 +11,9 @@ const allowedOrigins = [
   "https://www.admin.craftoryllc.com",
   "http://192.168.100.45:5173",
   "https://j5rgfbf5-5173.euw.devtunnels.ms",
-  "http://localhost",
-  "http://app.craftory.com",
-  "http://192.168.100.72:5173"
+  "https://localhost",
+  "https://app.craftory.com",
+  "https://192.168.100.72:5173"
 ];
 
 module.exports = allowedOrigins;
