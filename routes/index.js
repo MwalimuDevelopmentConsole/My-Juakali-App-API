@@ -17,6 +17,8 @@ const marketerRoutes = require("./marketerRoutes");
 const accountRoutes = require("./accountRoutes");
 const generalLedgerRoutes = require("./generalLedgerRoutes");
 const accountTypeRoutes = require("./accountTypeRoutes");
+const dashboardRoutes = require("./dashboardRoutes");
+const reportRoutes = require("./reportRoutes");
 
 
 // Health check endpoint
@@ -44,6 +46,8 @@ router.use("/marketers", marketerRoutes);
 router.use("/accounts", accountRoutes);
 router.use("/general-ledger", generalLedgerRoutes);
 router.use("/account-types", accountTypeRoutes);
+router.use("/dashboard", dashboardRoutes);
+router.use("/reports", reportRoutes);
 
 // 404 handler for API routes
 router.use("*", (req, res) => {

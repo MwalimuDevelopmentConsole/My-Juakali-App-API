@@ -144,7 +144,7 @@ const isClient = (req, res, next) => {
       null,
       "Authentication required",
       401
-    );
+    );                   
     return res.status(response.statusCode).json(response);
   }
 
