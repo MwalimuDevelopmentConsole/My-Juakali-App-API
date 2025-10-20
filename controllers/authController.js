@@ -232,7 +232,7 @@ const login = asyncHandler(async (req, res) => {
 // Refresh Token
 const refreshToken = asyncHandler(async (req, res) => {
   const { platform = "web" } = req.body;
-  
+
   let refreshToken;
   if(platform == "web"){
     refreshToken = req.cookies.refreshToken
@@ -240,7 +240,6 @@ const refreshToken = asyncHandler(async (req, res) => {
     refreshToken=req.body.refreshToken
   }
   
-  console.log(platform, refreshToken, req.body)
   if (!refreshToken) {
     const response = formatResponse(
       false,
