@@ -67,7 +67,7 @@ const authenticateToken = async (req, res, next) => {
     }
     user.userType = decoded.userType; // Add userType to request for role checks
     user.id = user._id; // Add user ID to request for further use
-    user.role = user.userType;
+    user.role = capitalizeFirstLetter(user.userType);
 
 
     req.user = user;

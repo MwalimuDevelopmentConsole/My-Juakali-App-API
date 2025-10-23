@@ -578,6 +578,8 @@ const sendMessage = async (req, res) => {
     const { messageType = "text", content, replyTo } = req.body;
     const { id: senderId, role: senderType } = req.user;
 
+    console.log(senderType)
+
     // Validate access
     // const { valid, error } = await validateConversationAccess(
     //   conversationId,

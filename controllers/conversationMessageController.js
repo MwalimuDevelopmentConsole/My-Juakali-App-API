@@ -247,6 +247,8 @@ const sendMessage = async (req, res) => {
     const { id } = req.params;
     const { messageType = 'text', content, replyTo } = req.body;
     const senderId = req.user.id;
+
+    // console.log(req.user)
     
     // Verify conversation exists and user is participant
     const conversation = await Conversation.findOne({

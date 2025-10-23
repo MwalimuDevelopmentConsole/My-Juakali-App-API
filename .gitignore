@@ -6,3 +6,12 @@ package-lock.json
 yarn.lock
 *.zip
 uploads
+
+# Google Cloud Storage service account key
+config/gcs-service-account.json
+**/gcs-service-account.json
+*.json
+!package.json
+!tsconfig.json
+docs
+UPLOAD_IMPLEMENTATION_SUMMARY.md
