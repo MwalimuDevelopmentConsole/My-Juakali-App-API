@@ -5,10 +5,10 @@ const path = require("path");
 // Initialize Google Cloud Storage
 const storage = new Storage({
   projectId: process.env.GCS_PROJECT_ID,
-  keyFilename: process.env.GCS_KEY_FILE_PATH, // Path to your service account key file
+  keyFilename: process.env.GCS_KEY_FILE_PATH , // Path to your service account key file
 });
 
-const bucketName = process.env.GCS_BUCKET_NAME;
+const bucketName = process.env.GCS_BUCKET_NAME || "bucket";
 const bucket = storage.bucket(bucketName);
 
 /**

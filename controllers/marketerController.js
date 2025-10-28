@@ -3,6 +3,8 @@ const Seller = require("../models/Seller");
 const Commission = require("../models/Commission");
 const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
+const bcrypt = require("bcryptjs");
+const mongoose = require("mongoose");
 
 // generate refarral code
 const generateUniqueReferralCode = async (
@@ -80,9 +82,11 @@ const registerMarketer = async (req, res) => {
     }
     const referralCode = await generateUniqueReferralCode(Marketer, 10);
 
+    const hashedPassword = await bcrypt.hash(password, 10);
+
     const marketerData = {
       email,
-      password,
+      password: hashedPassword,
       phone,
       firstName,
       lastName,
@@ -107,12 +111,6 @@ const registerMarketer = async (req, res) => {
 
     const marketer = await Marketer.create(marketerData);
 
-    // Generate JWT token
-    const token = jwt.sign(
-      { id: marketer._id, userType: "marketer" },
-      process.env.JWT_SECRET,
-      { expiresIn: "30d" }
-    );
 
     // TODO: Send verification email and SMS
 

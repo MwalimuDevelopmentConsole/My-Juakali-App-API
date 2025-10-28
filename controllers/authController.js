@@ -101,10 +101,13 @@ const sellerBuyerAgentLogin = asyncHandler(async (req, res) => {
     user = await Seller.findOne({ email: formattedEmail });
   }
 
+  
   if (!user) {
     user = await Buyer.findOne({ email: formattedEmail });
   }
-
+  
+  console.log(user)
+  
   if (!user) {
     const response = formatResponse(false, null, "Invalid credentials", 401);
     return res.status(response.statusCode).json(response);
