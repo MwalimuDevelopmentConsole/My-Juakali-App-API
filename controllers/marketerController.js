@@ -118,7 +118,6 @@ const registerMarketer = async (req, res) => {
       success: true,
       message:
         "Marketer registered successfully. Please verify your email and phone.",
-      token,
       marketer: {
         id: marketer._id,
         email: marketer.email,
@@ -129,6 +128,7 @@ const registerMarketer = async (req, res) => {
       },
     });
   } catch (error) {
+    console.error("Error:", error);
     res.status(500).json({
       success: false,
       message: "Server Error",
