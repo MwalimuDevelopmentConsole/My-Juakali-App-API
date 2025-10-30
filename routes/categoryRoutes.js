@@ -13,7 +13,6 @@ router
   .post(
     "/create",
     authenticateToken,
-    isAdmin,
     upload.single("file"),
     handleMulterError,
     categoriesController.createCategory
