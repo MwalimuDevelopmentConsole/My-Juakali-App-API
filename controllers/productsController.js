@@ -775,11 +775,11 @@ const getSellerProducts = async (req, res) => {
     let filter = { seller: sellerId };
 
     // If not the seller themselves or admin, only show active products
-    if (req.user?.id !== sellerId && req.user?.userType !== "admin") {
-      filter.status = "active";
-    } else if (status) {
-      filter.status = status;
-    }
+    // if (req.user?.id !== sellerId && req.user?.userType !== "admin") {
+    //   filter.status = "active";
+    // } else if (status) {
+    //   filter.status = status;
+    // }
 
     // get seller info aswell for website display
 
