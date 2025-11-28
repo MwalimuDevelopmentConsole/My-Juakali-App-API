@@ -80,7 +80,7 @@ const generateTokens = (user, userType) => {
 const sellerBuyerAgentLogin = asyncHandler(async (req, res) => {
   const { email, password, platform = "web" } = req.body;
 
-  console.log(req.body)
+  // console.log(req.body)
 
   if (!email || !password) {
     const response = formatResponse(
@@ -95,19 +95,22 @@ const sellerBuyerAgentLogin = asyncHandler(async (req, res) => {
   const formattedEmail = email.toLowerCase().trim();
 
   // Find user
-  let user = await Marketer.findOne({ email: formattedEmail });
+  let user = await Marketer.findOne({
+    $or: [{ email: formattedEmail }, { phone: formattedEmail }],
+  });
 
   if (!user) {
-    user = await Seller.findOne({ email: formattedEmail });
+    user = await Seller.findOne({
+      $or: [{ email: formattedEmail }, { phone: formattedEmail }],
+    });
   }
 
-  
   if (!user) {
-    user = await Buyer.findOne({ email: formattedEmail });
+    user = await Buyer.findOne({
+      $or: [{ email: formattedEmail }, { phone: formattedEmail }],
+    });
   }
-  
-  console.log(user)
-  
+
   if (!user) {
     const response = formatResponse(false, null, "Invalid credentials", 401);
     return res.status(response.statusCode).json(response);
@@ -131,7 +134,7 @@ const sellerBuyerAgentLogin = asyncHandler(async (req, res) => {
   // Generate tokens
   const { accessToken, refreshToken } = generateTokens(user, userType);
 
-  console.log({accessToken, refreshToken})
+  console.log({ accessToken, refreshToken });
 
   // Set refresh token in httpOnly cookie
   if (platform === "mobile") {
@@ -237,12 +240,12 @@ const refreshToken = asyncHandler(async (req, res) => {
   const { platform = "web" } = req.body;
 
   let refreshToken;
-  if(platform == "web"){
-    refreshToken = req.cookies.refreshToken
-  }else{
-    refreshToken=req.body.refreshToken
+  if (platform == "web") {
+    refreshToken = req.cookies.refreshToken;
+  } else {
+    refreshToken = req.body.refreshToken;
   }
-  
+
   if (!refreshToken) {
     const response = formatResponse(
       false,

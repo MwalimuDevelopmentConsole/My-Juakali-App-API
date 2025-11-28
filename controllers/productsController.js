@@ -539,17 +539,22 @@ const createProduct = async (req, res) => {
       "-" +
       Math.random().toString(36).substr(2, 9);
 
-    // Handle image uploads
+    // Handle image uploads - use temp paths, processing happens in background
     let images = [];
     if (req.files && req.files.length > 0) {
       for (let i = 0; i < req.files.length; i++) {
         const file = req.files[i];
+        
+        // Generate the optimized path that will exist after processing
+        const optimizedPath = file.path
+          .replace('/temp/', '/optimized/')
+          .replace(/\.[^.]+$/, '.webp');
 
         images.push({
-          url: `${process.env.API_DOMAIN}/${file.path}`,
-          publicId: null, // Not used anymore
-          alt: file.originalname, // Alt text from original filename
-          isPrimary: i === 0, // First image is primary
+          url: `${process.env.API_DOMAIN}/${optimizedPath}`,
+          publicId: null,
+          alt: file.originalname,
+          isPrimary: i === 0,
           order: i,
         });
       }
@@ -579,7 +584,7 @@ const createProduct = async (req, res) => {
         : [],
       inventory: inventory || {},
       serviceInfo: type === "service" ? serviceInfo : undefined,
-      status: "pending_approval", // All products need approval
+      status: "active",
     };
 
     const product = await Product.create(productData);
@@ -591,7 +596,7 @@ const createProduct = async (req, res) => {
 
     res.status(201).json({
       success: true,
-      message: "Product created successfully and is pending approval",
+      message: "Product created successfully. Images are being processed.",
       product,
     });
   } catch (error) {
@@ -610,7 +615,6 @@ const createProduct = async (req, res) => {
 const updateProduct = async (req, res) => {
   try {
     const product = await Product.findById(req.params.id);
-
     if (!product) {
       return res.status(404).json({
         success: false,
@@ -645,16 +649,26 @@ const updateProduct = async (req, res) => {
       secondaryCategory,
     } = req.body;
 
-    // Handle image uploads (if any new images)
+    // Handle image uploads (if any new images) - use optimized paths
     if (req.files && req.files.length > 0) {
-      // Build new image data using local file paths
-      const newImages = req.files.map((file, index) => ({
-        url: `${process.env.API_DOMAIN}/${file.path}`,
-        publicId: null,
-        alt: file.originalname, // Use original filename
-        isPrimary: index === 0, // First image is primary
-        order: index,
-      }));
+      // Get current image count for proper ordering
+      const currentImageCount = product.media.images.length;
+      
+      // Build new image data using optimized paths (background processing)
+      const newImages = req.files.map((file, index) => {
+        // Generate the optimized path that will exist after processing
+        const optimizedPath = file.path
+          .replace('/temp/', '/optimized/')
+          .replace(/\.[^.]+$/, '.webp');
+        
+        return {
+          url: `${process.env.API_DOMAIN}/${optimizedPath}`,
+          publicId: null,
+          alt: file.originalname,
+          isPrimary: currentImageCount === 0 && index === 0, // First image is primary only if no existing images
+          order: currentImageCount + index,
+        };
+      });
 
       product.media.images = [...product.media.images, ...newImages];
     }
@@ -671,6 +685,7 @@ const updateProduct = async (req, res) => {
         "-" +
         Math.random().toString(36).substr(2, 9);
     }
+    
     if (description) product.description = description;
     if (primaryCategory) product.primaryCategory = primaryCategory;
     if (secondaryCategory) product.secondaryCategories = [secondaryCategory];
@@ -694,7 +709,7 @@ const updateProduct = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: "Product updated successfully",
+      message: "Product updated successfully. New images are being processed.",
       product,
     });
   } catch (error) {

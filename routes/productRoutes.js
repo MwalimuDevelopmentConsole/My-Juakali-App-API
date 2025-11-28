@@ -28,7 +28,7 @@ const {
 const { authenticateToken, authorize, optionalAuth } = require("../middleware/auth");
 const Product = require("../models/Product");
 const FavoritedProduct = require("../models/FavoritedProduct");
-const { handleMulterError, upload } = require("../config/multer");
+const { handleMulterError, upload, processUploadedImages } = require("../config/multer");
 
 // =============================================
 // SEARCH ROUTES
@@ -65,6 +65,7 @@ router.post(
   authenticateToken,
   authorize(["seller", "admin", "super_admin"]),
   upload.array("images", 15),
+  processUploadedImages,
   handleMulterError,
   createProduct
 );
@@ -77,6 +78,7 @@ router.patch(
   authenticateToken,
   authorize(["seller", "admin", "super_admin"]),
   upload.array("images", 15),
+  processUploadedImages,
   handleMulterError,
   updateProduct
 );

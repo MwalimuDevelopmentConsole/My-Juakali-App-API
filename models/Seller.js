@@ -7,9 +7,10 @@ const sellerSchema = new Schema(
     // Essential Information
     email: {
       type: String,
-      required: true,
+      // required: true,
       unique: true,
       lowercase: true,
+      sparse: true,
       trim: true,
       index: true,
       match: [

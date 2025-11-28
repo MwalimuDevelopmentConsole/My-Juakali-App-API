@@ -7,6 +7,7 @@ const crypto = require("crypto");
 const bcrypt = require("bcryptjs");
 const Product = require("../models/Product");
 const { default: mongoose } = require("mongoose");
+const Buyer = require("../models/Buyer");
 
 // @desc    Register new seller
 // @route   POST /api/sellers/register
@@ -26,7 +27,6 @@ const registerSeller = async (req, res) => {
 
     // Validation
     if (
-      !email ||
       !password ||
       !phone ||
       !firstName ||
@@ -49,16 +49,32 @@ const registerSeller = async (req, res) => {
       });
     }
 
-    // Check if seller already exists
-    const existingSeller = await Seller.findOne({
-      $or: [{ email }, { phone }],
-    });
+    const formattedEmail = email.toLowerCase().trim();
 
-    if (existingSeller) {
-      return res.status(400).json({
-        success: false,
-        message: "Seller with this email or phone already exists",
-      });
+    // Check if seller already exists
+    const checkDuplicate = async (models, field, value) => {
+      const results = await Promise.all(
+        models.map((model) => model.findOne({ [field]: value }).lean())
+      );
+
+      return results.find((item) => item !== null) || null;
+    };
+
+    const models = [Buyer, Seller, Marketer];
+
+    const [emailExists, phoneExists] = await Promise.all([
+      checkDuplicate(models, "email", formattedEmail),
+      checkDuplicate(models, "phone", phone),
+    ]);
+
+    if (formattedEmail && emailExists) {
+      return res.status(409).json({ message: "Email already registered" });
+    }
+
+    if (phoneExists) {
+      return res
+        .status(409)
+        .json({ message: "Phone number already registered" });
     }
 
     // Check referral code if provided
@@ -123,6 +139,7 @@ const registerSeller = async (req, res) => {
       },
       referredBy,
       referralDate: referredBy ? new Date() : undefined,
+      status: "active",
     };
 
     const seller = await Seller.create(sellerData);

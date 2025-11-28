@@ -3,6 +3,8 @@ const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
 const crypto = require("crypto");
 const { generateTokens } = require("./authController");
+const Seller = require("../models/Seller");
+const Marketer = require("../models/Marketer");
 
 // @desc    Register new buyer
 // @route   POST /api/buyers/register
@@ -26,14 +28,34 @@ const registerBuyer = async (req, res) => {
       });
     }
 
-    // Check if buyer already exists
-    const existingBuyer = await Buyer.findOne({ email });
-    if (existingBuyer) {
-      return res.status(400).json({
-        success: false,
-        message: "Buyer with this email already exists",
-      });
+    const formattedEmail = email.toLowerCase().trim();
+
+    // Check if email already exists in the database
+    const checkDuplicate = async (models, field, value) => {
+      const results = await Promise.all(
+        models.map((model) => model.findOne({ [field]: value }).lean())
+      );
+
+      return results.find((item) => item !== null) || null;
+    };
+
+    const models = [Buyer, Seller, Marketer];
+
+    const [emailExists, phoneExists] = await Promise.all([
+      checkDuplicate(models, "email", formattedEmail),
+      checkDuplicate(models, "phone", phone),
+    ]);
+
+
+    if (emailExists) {
+      return res.status(409).json({ message: "Email already registered" });
     }
+
+    // if (phoneExists) {
+    //   return res
+    //     .status(409)
+    //     .json({ message: "Phone number already registered" });
+    // }
 
     // Generate email verification token
     const emailVerificationToken = crypto.randomBytes(32).toString("hex");
@@ -83,6 +105,7 @@ const registerBuyer = async (req, res) => {
       },
     });
   } catch (error) {
+    console.log(error);
     res.status(500).json({
       success: false,
       message: "Server Error",

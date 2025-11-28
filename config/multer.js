@@ -2,6 +2,7 @@
 const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
+const sharp = require("sharp");
 
 // Ensure upload directory exists
 const ensureDirectoryExists = (dirPath) => {
@@ -12,11 +13,13 @@ const ensureDirectoryExists = (dirPath) => {
 
 // Create uploads directory
 ensureDirectoryExists("uploads/");
+ensureDirectoryExists("uploads/temp/");
+ensureDirectoryExists("uploads/optimized/");
 
 const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    console.log(`Uploading file to: uploads/`);
-    cb(null, "uploads/");
+    console.log("Uploading file to: uploads/temp/");
+    cb(null, "uploads/temp/");
   },
   filename: (req, file, cb) => {
     const timestamp = new Date().toISOString().replace(/:/g, "-");
@@ -31,9 +34,149 @@ const upload = multer({
     fileSize: 10 * 1024 * 1024, // 10MB
   },
   fileFilter: (req, file, cb) => {
-    cb(null, true); // ✅ allow all files
+    cb(null, true);
   },
 });
+
+// Process image: add watermark and optimize
+const processImage = async (filePath, businessName) => {
+  try {
+    let image = sharp(filePath);
+    let metadata = await image.metadata();
+    
+    // Resize if image is too large (max 1920px width) - DO THIS FIRST
+    if (metadata.width > 1920) {
+      image = image.resize(1920, null, {
+        withoutEnlargement: true,
+        fit: 'inside'
+      });
+      
+      // Get new dimensions after resize
+      const resizedBuffer = await image.toBuffer();
+      image = sharp(resizedBuffer);
+      metadata = await image.metadata();
+    }
+    
+    // NOW calculate watermark size based on FINAL image dimensions
+    const fontSize = Math.max(Math.floor(metadata.width * 0.05), 24);
+    const lineHeight = fontSize * 1.3;
+    
+    // Create watermark text
+    const line1 = "POSTED ON CRAFTORY";
+    const line2 = businessName || "craftoryllc.com";
+    
+    // Calculate center position
+    const centerX = metadata.width / 2;
+    const centerY = metadata.height / 2;
+    
+    // Create centered SVG watermark with outlined text
+    const svgWatermark = `
+      <svg width="${metadata.width}" height="${metadata.height}">
+        <defs>
+          <style>
+            .watermark-text { 
+              fill: rgba(0, 0, 0, 0.3);
+              stroke: white;
+              stroke-width: ${Math.max(fontSize * 0.08, 2)}px;
+              font-size: ${fontSize}px; 
+              font-family: Arial, Helvetica, sans-serif; 
+              font-weight: 900;
+              text-anchor: middle;
+              paint-order: stroke fill;
+              opacity: 0.25;
+            }
+          </style>
+        </defs>
+        <text x="${centerX}" y="${centerY - lineHeight / 2}" 
+              class="watermark-text">${line1}</text>
+        <text x="${centerX}" y="${centerY + lineHeight / 2}" 
+              class="watermark-text">${line2}</text>
+      </svg>
+    `;
+    
+    const watermarkBuffer = Buffer.from(svgWatermark);
+    
+    // Always output as WebP (most lightweight format)
+    const outputPath = filePath.replace('/temp/', '/optimized/').replace(path.extname(filePath), '.webp');
+    
+    // Add watermark and convert to WebP
+    await image
+      .composite([
+        { input: watermarkBuffer, top: 0, left: 0 }
+      ])
+      .webp({ 
+        quality: 85,
+        effort: 6
+      })
+      .toFile(outputPath);
+    
+    // Delete temporary file
+    fs.unlinkSync(filePath);
+    
+    return {
+      originalPath: filePath,
+      optimizedPath: outputPath,
+      filename: path.basename(outputPath)
+    };
+  } catch (error) {
+    console.error("Error processing image:", error);
+    throw error;
+  }
+};
+
+// Middleware to process uploaded images ASYNCHRONOUSLY
+const processUploadedImages = async (req, res, next) => {
+  try {
+    const businessName = req.body.businessName || "";
+    
+    // Store original file info for immediate response
+    if (req.file) {
+      req.file.processingStatus = 'pending';
+    } else if (req.files) {
+      if (Array.isArray(req.files)) {
+        req.files.forEach(file => file.processingStatus = 'pending');
+      } else {
+        for (const fieldName in req.files) {
+          req.files[fieldName].forEach(file => file.processingStatus = 'pending');
+        }
+      }
+    }
+    
+    // Move to next middleware immediately - don't wait for processing
+    next();
+    
+    // Process images in the background (non-blocking)
+    setImmediate(async () => {
+      try {
+        if (req.file) {
+          await processImage(req.file.path, businessName);
+        } else if (req.files) {
+          if (Array.isArray(req.files)) {
+            await Promise.all(
+              req.files.map(file => processImage(file.path, businessName))
+            );
+          } else {
+            const promises = [];
+            for (const fieldName in req.files) {
+              promises.push(
+                ...req.files[fieldName].map(file => processImage(file.path, businessName))
+              );
+            }
+            await Promise.all(promises);
+          }
+        }
+        console.log('✅ Background image processing completed');
+      } catch (error) {
+        console.error("Background image processing error:", error);
+      }
+    });
+    
+  } catch (error) {
+    console.error("Error in processUploadedImages middleware:", error);
+    next(error);
+  }
+};
+
 // Middleware to handle multer errors
 const handleMulterError = (error, req, res, next) => {
   if (error instanceof multer.MulterError) {
@@ -54,7 +197,6 @@ const handleMulterError = (error, req, res, next) => {
       });
     }
   }
-
   if (error.message === "Only image files are allowed") {
     console.error("Invalid file type:", error);
     return res.status(400).json({
@@ -63,11 +205,11 @@ const handleMulterError = (error, req, res, next) => {
       statusCode: 400,
     });
   }
-
   next(error);
 };
 
 module.exports = {
   upload,
+  processUploadedImages,
   handleMulterError,
 };

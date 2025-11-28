@@ -5,6 +5,7 @@ const crypto = require("crypto");
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
 const mongoose = require("mongoose");
+const Buyer = require("../models/Buyer");
 
 // generate refarral code
 const generateUniqueReferralCode = async (
@@ -68,18 +69,33 @@ const registerMarketer = async (req, res) => {
         message: "Password must be at least 6 characters",
       });
     }
+    const formattedEmail = email.toLowerCase().trim();
+    // Check if email already exists in the database
+    const checkDuplicate = async (models, field, value) => {
+      const results = await Promise.all(
+        models.map((model) => model.findOne({ [field]: value }).lean())
+      );
 
-    // Check if marketer already exists
-    const existingMarketer = await Marketer.findOne({
-      $or: [{ email }, { phone }],
-    });
+      return results.find((item) => item !== null) || null;
+    };
 
-    if (existingMarketer) {
-      return res.status(400).json({
-        success: false,
-        message: "Marketer with this email or phone already exists",
-      });
+    const models = [Buyer, Seller, Marketer];
+
+    const [emailExists, phoneExists] = await Promise.all([
+      checkDuplicate(models, "email", formattedEmail),
+      checkDuplicate(models, "phone", phone),
+    ]);
+
+    if (emailExists) {
+      return res.status(409).json({ message: "Email already registered" });
     }
+
+    if (phoneExists) {
+      return res
+        .status(409)
+        .json({ message: "Phone number already registered" });
+    }
+
     const referralCode = await generateUniqueReferralCode(Marketer, 10);
 
     const hashedPassword = await bcrypt.hash(password, 10);
@@ -110,7 +126,6 @@ const registerMarketer = async (req, res) => {
     };
 
     const marketer = await Marketer.create(marketerData);
-
 
     // TODO: Send verification email and SMS
 
@@ -730,5 +745,5 @@ module.exports = {
   getCommissionHistory,
   getMarketerById,
   getAllMarketers,
-  updateMarketerStatus
+  updateMarketerStatus,
 };
