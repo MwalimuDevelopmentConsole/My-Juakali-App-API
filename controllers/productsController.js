@@ -396,7 +396,7 @@ const getProduct = async (req, res) => {
       .populate({
         path: "seller",
         select:
-          "firstName lastName businessInfo status ratings verification location socialLinks",
+          "firstName phone lastName businessInfo status ratings verification location socialLinks",
         populate: {
           path: "currentSubscription",
           populate: {
