@@ -3,6 +3,8 @@ const Seller = require("../models/Seller");
 const Product = require("../models/Product");
 const Review = require("../models/Review");
 const UserSubscription = require("../models/SellerSubscription");
+const jwt = require("jsonwebtoken");
+const bcrypt = require("bcryptjs");
 
 // @desc    Register new admin
 // @route   POST /api/admins/register
@@ -22,10 +24,10 @@ const registerAdmin = async (req, res) => {
     } = req.body;
 
     // Only super admins can create other admins
-    if (req.user.role !== "super_admin") {
+    if (req.user.role !== "Admin") {
       return res.status(403).json({
         success: false,
-        message: "Only super admins can create new admin accounts",
+        message: "Only admins can create new admin accounts",
       });
     }
 
@@ -64,9 +66,12 @@ const registerAdmin = async (req, res) => {
       }
     }
 
+    // Hash password
+    const hashedPassword = await bcrypt.hash(password, 12);
+
     const adminData = {
       email,
-      password,
+      password: hashedPassword,
       firstName,
       lastName,
       phone,
@@ -371,10 +376,212 @@ const updateReviewStatus = async (req, res) => {
   }
 };
 
+// @desc    Get all admins with filtering and pagination
+// @route   GET /api/admins
+// @access  Super Admin only
+const getAllAdmins = async (req, res) => {
+  try {
+    const {
+      page = 1,
+      limit = 10,
+      search,
+      department,
+      role,
+      status,
+    } = req.query;
+
+    const query = {};
+
+    // Filter by search term
+    if (search) {
+      query.$or = [
+        { firstName: { $regex: search, $options: "i" } },
+        { lastName: { $regex: search, $options: "i" } },
+        { email: { $regex: search, $options: "i" } },
+      ];
+    }
+
+    // Filter by department
+    if (department) {
+      query.department = department;
+    }
+
+    // Filter by role
+    if (role) {
+      query.role = role;
+    }
+
+    // Filter by status (using isActive field)
+    if (status === "active") {
+      query.isActive = true;
+    } else if (status === "inactive") {
+      query.isActive = false;
+    }
+
+    const admins = await Admin.find(query)
+      .select(
+        "-password -security.twoFactorSecret -security.backupCodes -security.sessionTokens"
+      )
+      .populate("reportsTo", "firstName lastName email")
+      .sort({ createdAt: -1 })
+      .limit(limit * 1)
+      .skip((page - 1) * limit);
+
+    const count = await Admin.countDocuments(query);
+
+    res.status(200).json({
+      success: true,
+      admins,
+      totalPages: Math.ceil(count / limit),
+      currentPage: Number(page),
+      totalAdmins: count,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Server Error",
+      error: error.message,
+    });
+  }
+};
+
+// @desc    Get single admin by ID
+// @route   GET /api/admins/:id
+// @access  Super Admin only
+const getAdminById = async (req, res) => {
+  try {
+    const admin = await Admin.findById(req.params.id)
+      .select(
+        "-password -security.twoFactorSecret -security.backupCodes -security.sessionTokens"
+      )
+      .populate("reportsTo", "firstName lastName email");
+
+    if (!admin) {
+      return res.status(404).json({
+        success: false,
+        message: "Admin not found",
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      admin,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Server Error",
+      error: error.message,
+    });
+  }
+};
+
+// @desc    Update admin status (Block/Unblock)
+// @route   PATCH /api/admins/:id/status
+// @access  Super Admin only
+const updateAdminAccountStatus = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { isActive } = req.body;
+
+    // Prevent self-deactivation
+    if (id === req.user.id) {
+      return res.status(400).json({
+        success: false,
+        message: "You cannot change your own status",
+      });
+    }
+
+    const adminToUpdate = await Admin.findById(id);
+    if (!adminToUpdate) {
+      return res.status(404).json({
+        success: false,
+        message: "Admin not found",
+      });
+    }
+
+    // Update both isActive and status string for consistency
+    adminToUpdate.isActive = isActive;
+    adminToUpdate.status = isActive ? "active" : "inactive";
+
+    if (!isActive) {
+      // Invalidate sessions if blocking
+      adminToUpdate.security.sessionTokens = [];
+    }
+
+    await adminToUpdate.save();
+
+    res.status(200).json({
+      success: true,
+      message: `Admin ${isActive ? "activated" : "deactivated"} successfully`,
+      admin: {
+        id: adminToUpdate._id,
+        isActive: adminToUpdate.isActive,
+        status: adminToUpdate.status,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Server Error",
+      error: error.message,
+    });
+  }
+};
+
+// @desc    Delete admin
+// @route   DELETE /api/admins/:id
+// @access  Super Admin only
+const deleteAdmin = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Prevent self-deletion
+    if (id === req.user.id) {
+      return res.status(400).json({
+        success: false,
+        message: "You cannot delete your own account",
+      });
+    }
+
+    const adminToDelete = await Admin.findById(id);
+
+    if (!adminToDelete) {
+      return res.status(404).json({
+        success: false,
+        message: "Admin not found",
+      });
+    }
+
+    // Optional: Prevent deleting Super Admins if not a Super Admin (if that hierarchy exists conceptually)
+    // For now, assume any "Admin" role (checked by middleware) can delete if they passed the route check,
+    // but typically you might want 'super_admin' check here.
+    // Given current middleware `isAdmin` just checks role === 'Admin', we'll rely on that.
+
+    await adminToDelete.remove();
+
+    res.status(200).json({
+      success: true,
+      message: "Admin deleted successfully",
+      id,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Server Error",
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   registerAdmin,
   getAdminDashboard,
   updateSellerStatus,
   updateProductStatus,
   updateReviewStatus,
+  getAllAdmins,
+  getAdminById,
+  updateAdminAccountStatus,
+  deleteAdmin,
 };

@@ -46,7 +46,6 @@ const registerBuyer = async (req, res) => {
       checkDuplicate(models, "phone", phone),
     ]);
 
-
     if (emailExists) {
       return res.status(409).json({ message: "Email already registered" });
     }
@@ -313,6 +312,120 @@ const resetPassword = async (req, res) => {
   }
 };
 
+// @desc    Get all buyers (Admin)
+// @route   GET /api/buyers
+// @access  Admin only
+const getAllBuyers = async (req, res) => {
+  try {
+    const { page = 1, limit = 10, search, status } = req.query;
+    const query = {};
+
+    // Search functionality
+    if (search) {
+      query.$or = [
+        { firstName: { $regex: search, $options: "i" } },
+        { lastName: { $regex: search, $options: "i" } },
+        { email: { $regex: search, $options: "i" } },
+        { phone: { $regex: search, $options: "i" } },
+      ];
+    }
+
+    // Filter by status
+    if (status) {
+      if (status === "active") query.isActive = true;
+      if (status === "inactive") query.isActive = false;
+    }
+
+    const buyers = await Buyer.find(query)
+      .select("-password -emailVerificationToken -passwordResetToken")
+      .sort({ createdAt: -1 })
+      .limit(limit * 1)
+      .skip((page - 1) * limit)
+      .lean();
+
+    const count = await Buyer.countDocuments(query);
+
+    res.status(200).json({
+      success: true,
+      data: buyers, // Fixed typo
+      buyers,
+      totalPages: Math.ceil(count / limit),
+      currentPage: page,
+      totalBuyers: count,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Server Error",
+      error: error.message,
+    });
+  }
+};
+
+// @desc    Get single buyer by ID (Admin)
+// @route   GET /api/buyers/:id
+// @access  Admin only
+const getBuyerById = async (req, res) => {
+  try {
+    const buyer = await Buyer.findById(req.params.id)
+      .select("-password")
+      .lean();
+
+    if (!buyer) {
+      return res.status(404).json({
+        success: false,
+        message: "Buyer not found",
+      });
+    }
+
+    // TODO: Add order history or other related data fetching here if needed
+
+    res.status(200).json({
+      success: true,
+      buyer,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Server Error",
+      error: error.message,
+    });
+  }
+};
+
+// @desc    Update buyer status (Admin)
+// @route   PATCH /api/buyers/:id/status
+// @access  Admin only
+const updateBuyerStatus = async (req, res) => {
+  try {
+    const { isActive } = req.body;
+
+    const buyer = await Buyer.findById(req.params.id);
+
+    if (!buyer) {
+      return res.status(404).json({
+        success: false,
+        message: "Buyer not found",
+      });
+    }
+
+    buyer.isActive = isActive;
+    await buyer.save();
+
+    res.status(200).json({
+      success: true,
+      message: `Buyer account ${isActive ? "activated" : "deactivated"}`,
+      buyer,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Server Error",
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   registerBuyer,
   getBuyerProfile,
@@ -320,4 +433,7 @@ module.exports = {
   verifyEmail,
   forgotPassword,
   resetPassword,
+  getAllBuyers,
+  getBuyerById,
+  updateBuyerStatus,
 };

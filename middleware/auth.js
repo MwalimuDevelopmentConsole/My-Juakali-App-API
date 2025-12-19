@@ -9,7 +9,7 @@ const userTypes = {
   buyer: Buyer,
   seller: Seller,
   admin: Admin,
-  marketer: Marketer
+  marketer: Marketer,
 };
 
 // Response formatter
@@ -45,12 +45,12 @@ const authenticateToken = async (req, res, next) => {
     }
 
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    
+
     // Get user from database to ensure they still exist and are active
     const user = await userTypes[decoded.userType]
-    .findById(decoded.id)
-    .select("-password");
-    
+      .findById(decoded.id)
+      .select("-password");
+
     if (!user) {
       const response = formatResponse(false, null, "User not found", 401);
       return res.status(response.statusCode).json(response);
@@ -68,7 +68,6 @@ const authenticateToken = async (req, res, next) => {
     user.userType = decoded.userType; // Add userType to request for role checks
     user.id = user._id; // Add user ID to request for further use
     user.role = capitalizeFirstLetter(user.userType);
-
 
     req.user = user;
     next();
@@ -128,7 +127,8 @@ const isAdmin = (req, res, next) => {
 
   const validRoles = ["admin", "super_admin"];
 
-  if (!validRoles.includes(req.user.role)) {
+  // Fix: Convert role to lowercase to match validRoles
+  if (!validRoles.includes(req.user.role.toLowerCase())) {
     const response = formatResponse(false, null, "Admin access required", 403);
     return res.status(response.statusCode).json(response);
   }
@@ -144,13 +144,14 @@ const isClient = (req, res, next) => {
       null,
       "Authentication required",
       401
-    );                   
+    );
     return res.status(response.statusCode).json(response);
   }
 
   const validRoles = ["client", "buyer"];
 
-  if (!validRoles.includes(req.user.role)) {
+  // Fix: Convert role to lowercase to match validRoles
+  if (!validRoles.includes(req.user.role.toLowerCase())) {
     const response = formatResponse(false, null, "Client access required", 403);
     return res.status(response.statusCode).json(response);
   }
@@ -169,7 +170,7 @@ const isAuthenticated = (req, res, next) => {
     );
     return res.status(response.statusCode).json(response);
   }
-  console.log(user)
+  console.log(user);
 
   if (
     !["admin", "client", "buyer", "seller", "marketer", "super_admin"].includes(
