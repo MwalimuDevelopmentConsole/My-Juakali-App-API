@@ -413,21 +413,42 @@ const updateCategory = async (req, res) => {
       category.slug = newSlug;
     }
 
-    // Handle image upload
+    // Handle image upload or removal
     let imageData = {};
     if (req.file) {
+      // If there was an old image, delete from cloudinary
+      if (category.image && category.image.publicId) {
+        await cloudinary.uploader.destroy(category.image.publicId);
+      }
+
       imageData = {
         url: `${process.env.API_DOMAIN}/${req.file.path}`,
         alt: req.file.originalname,
       };
 
       category.image = imageData;
+    } else if (req.body.removeImage === "true") {
+      // If explicit removal requested
+      if (category.image && category.image.publicId) {
+        await cloudinary.uploader.destroy(category.image.publicId);
+      }
+      category.image = null;
     }
 
     // Update fields
     if (name) category.name = name;
     if (description) category.description = description;
-    if (dynamicFields) category.dynamicFields = dynamicFields;
+    if (dynamicFields) {
+      try {
+        category.dynamicFields =
+          typeof dynamicFields === "string"
+            ? JSON.parse(dynamicFields)
+            : dynamicFields;
+      } catch (e) {
+        console.error("Error parsing dynamicFields:", e);
+        // Fallback or let Mongoose handle validation error if strictly needed
+      }
+    }
     if (isActive !== undefined) category.isActive = isActive;
     if (sortOrder !== undefined) category.sortOrder = sortOrder;
     if (metaTitle) category.metaTitle = metaTitle;
