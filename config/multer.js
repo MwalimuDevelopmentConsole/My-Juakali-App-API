@@ -45,7 +45,7 @@ const processImage = async (filePath, businessName) => {
     let image = sharp(filePath);
     let metadata = await image.metadata();
     
-    // Resize if image is too large (max 1920px width) - DO THIS FIRST
+    // Resize if image is too large (max 1920px width) - Standardize maximum dimension
     if (metadata.width > 1920) {
       image = image.resize(1920, null, {
         withoutEnlargement: true,
@@ -58,40 +58,36 @@ const processImage = async (filePath, businessName) => {
       metadata = await image.metadata();
     }
     
-    // NOW calculate watermark size based on FINAL image dimensions
-    const fontSize = Math.max(Math.floor(metadata.width * 0.05), 24);
-    const lineHeight = fontSize * 1.3;
+    // Watermark Configuration - Minimal & Professional
+    // Placing it in bottom-right corner with subtle styling
+    const width = metadata.width;
+    const height = metadata.height;
     
-    // Create watermark text
-    const line1 = "POSTED ON CRAFTORY";
-    const line2 = businessName || "craftoryllc.com";
+    // Calculate padding (3% of smaller dimension for consistent spacing)
+    const padding = Math.floor(Math.min(width, height) * 0.03);
     
-    // Calculate center position
-    const centerX = metadata.width / 2;
-    const centerY = metadata.height / 2;
+    // Font size relative to image width (approx 2.5%, min 14px)
+    const fontSize = Math.max(Math.floor(width * 0.025), 14);
     
-    // Create centered SVG watermark with outlined text
+    const text = (businessName || "Craftory").toUpperCase();
+    
+    // Create professional SVG watermark
+    // White text with subtle drop shadow for visibility on any background
+    // Bottom-right aligned
     const svgWatermark = `
-      <svg width="${metadata.width}" height="${metadata.height}">
-        <defs>
-          <style>
-            .watermark-text { 
-              fill: rgba(0, 0, 0, 0.3);
-              stroke: white;
-              stroke-width: ${Math.max(fontSize * 0.08, 2)}px;
-              font-size: ${fontSize}px; 
-              font-family: Arial, Helvetica, sans-serif; 
-              font-weight: 900;
-              text-anchor: middle;
-              paint-order: stroke fill;
-              opacity: 0.25;
-            }
-          </style>
-        </defs>
-        <text x="${centerX}" y="${centerY - lineHeight / 2}" 
-              class="watermark-text">${line1}</text>
-        <text x="${centerX}" y="${centerY + lineHeight / 2}" 
-              class="watermark-text">${line2}</text>
+      <svg width="${width}" height="${height}">
+        <style>
+          .watermark { 
+            fill: rgba(255, 255, 255, 0.7);
+            font-size: ${fontSize}px; 
+            font-family: 'Helvetica Neue', Arial, sans-serif; 
+            font-weight: 500;
+            text-anchor: end;
+            filter: drop-shadow(0px 1px 3px rgba(0,0,0,0.5));
+            letter-spacing: 0.05em;
+          }
+        </style>
+        <text x="${width - padding}" y="${height - padding}" class="watermark">${text}</text>
       </svg>
     `;
     
@@ -101,6 +97,7 @@ const processImage = async (filePath, businessName) => {
     const outputPath = filePath.replace('/temp/', '/optimized/').replace(path.extname(filePath), '.webp');
     
     // Add watermark and convert to WebP
+    // Using default 'over' blend mode which is standard for overlays
     await image
       .composite([
         { input: watermarkBuffer, top: 0, left: 0 }
@@ -111,9 +108,13 @@ const processImage = async (filePath, businessName) => {
       })
       .toFile(outputPath);
     
-    // Delete temporary file
-    if (fs.existsSync(filePath)) {
-      fs.unlinkSync(filePath);
+    // Robust cleanup of temp file
+    try {
+      if (fs.existsSync(filePath)) {
+        fs.unlinkSync(filePath);
+      }
+    } catch (err) {
+      console.warn("Warning: Could not delete temp file:", filePath);
     }
     
     // Upload to BunnyCDN
@@ -133,7 +134,9 @@ const processImage = async (filePath, businessName) => {
     };
   } catch (error) {
     console.error("Error processing image:", error);
-    throw error;
+    // Don't throw error to prevent crashing entire upload if one image fails
+    // Return null or error object if needed, but for now we log it
+    return null;
   }
 };
 
