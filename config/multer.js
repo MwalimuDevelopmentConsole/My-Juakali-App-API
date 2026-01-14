@@ -3,6 +3,7 @@ const multer = require("multer");
 const path = require("path");
 const fs = require("fs");
 const sharp = require("sharp");
+const { uploadToBunnyCDN } = require('../utils/bunnyCdn');
 
 // Ensure upload directory exists
 const ensureDirectoryExists = (dirPath) => {
@@ -111,8 +112,20 @@ const processImage = async (filePath, businessName) => {
       .toFile(outputPath);
     
     // Delete temporary file
-    fs.unlinkSync(filePath);
+    if (fs.existsSync(filePath)) {
+      fs.unlinkSync(filePath);
+    }
     
+    // Upload to BunnyCDN
+    try {
+      if (process.env.BUNNY_API_KEY && process.env.BUNNY_STORAGE_NAME) {
+         await uploadToBunnyCDN(outputPath);
+         console.log(`✅ Uploaded to BunnyCDN: ${path.basename(outputPath)}`);
+      }
+    } catch (uploadError) {
+      console.error("BunnyCDN upload failed:", uploadError.message);
+    }
+
     return {
       originalPath: filePath,
       optimizedPath: outputPath,

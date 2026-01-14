@@ -549,9 +549,17 @@ const createProduct = async (req, res) => {
         const optimizedPath = file.path
           .replace('/temp/', '/optimized/')
           .replace(/\.[^.]+$/, '.webp');
+        
+        const fileName = require('path').basename(optimizedPath);
+        // Use BunnyCDN Pull Zone URL
+        const pullZone = process.env.BUNNY_PULL_ZONE ? process.env.BUNNY_PULL_ZONE.replace(/\/$/, '') : process.env.API_DOMAIN;
+        // Default folder is 'uploads' as per bunnyCdn.js
+        const imageUrl = process.env.BUNNY_PULL_ZONE 
+          ? `${pullZone}/uploads/${fileName}` 
+          : `${process.env.API_DOMAIN}/${optimizedPath}`; // Fallback to local if no pull zone
 
         images.push({
-          url: `${process.env.API_DOMAIN}/${optimizedPath}`,
+          url: imageUrl,
           publicId: null,
           alt: file.originalname,
           isPrimary: i === 0,
@@ -596,7 +604,7 @@ const createProduct = async (req, res) => {
 
     res.status(201).json({
       success: true,
-      message: "Product created successfully. Images are being processed.",
+      message: "Product created successfully. Images are being processed and uploaded to CDN.",
       product,
     });
   } catch (error) {
@@ -661,8 +669,16 @@ const updateProduct = async (req, res) => {
           .replace('/temp/', '/optimized/')
           .replace(/\.[^.]+$/, '.webp');
         
+        const fileName = require('path').basename(optimizedPath);
+        // Use BunnyCDN Pull Zone URL
+        const pullZone = process.env.BUNNY_PULL_ZONE ? process.env.BUNNY_PULL_ZONE.replace(/\/$/, '') : process.env.API_DOMAIN;
+        // Default folder is 'uploads'
+        const imageUrl = process.env.BUNNY_PULL_ZONE 
+          ? `${pullZone}/uploads/${fileName}` 
+          : `${process.env.API_DOMAIN}/${optimizedPath}`;
+
         return {
-          url: `${process.env.API_DOMAIN}/${optimizedPath}`,
+          url: imageUrl,
           publicId: null,
           alt: file.originalname,
           isPrimary: currentImageCount === 0 && index === 0, // First image is primary only if no existing images
@@ -709,7 +725,7 @@ const updateProduct = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: "Product updated successfully. New images are being processed.",
+      message: "Product updated successfully. New images are being processed and uploaded to CDN.",
       product,
     });
   } catch (error) {
