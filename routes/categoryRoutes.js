@@ -6,7 +6,11 @@ const categoriesController = require("../controllers/categoriesController");
 
 // Import middleware
 const { authenticateToken, isClient, isAdmin } = require("../middleware/auth");
-const { upload, handleMulterError } = require("../config/multer");
+const {
+  upload,
+  handleMulterError,
+  processUploadedImages,
+} = require("../config/multer");
 
 // Category routes
 router
@@ -14,6 +18,7 @@ router
     "/create",
     authenticateToken,
     upload.single("file"),
+    processUploadedImages,
     handleMulterError,
     categoriesController.createCategory
   )
@@ -22,6 +27,7 @@ router
     authenticateToken,
     isAdmin,
     upload.single("file"),
+    processUploadedImages,
     handleMulterError,
     categoriesController.updateCategory
   )

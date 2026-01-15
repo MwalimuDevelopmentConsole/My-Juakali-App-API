@@ -332,12 +332,28 @@ const createCategory = async (req, res) => {
       level = parent.level + 1;
     }
 
-    // Handle image upload
+    // Handle image upload - use optimized paths
     let imageData = {};
     if (req.file) {
+      // Generate the optimized path that will exist after processing
+      const optimizedPath = req.file.path
+        .replace("/temp/", "/optimized/")
+        .replace(/\.[^.]+$/, ".webp");
+
+      const fileName = require("path").basename(optimizedPath);
+      // Use BunnyCDN Pull Zone URL
+      const pullZone = process.env.BUNNY_PULL_ZONE
+        ? process.env.BUNNY_PULL_ZONE.replace(/\/$/, "")
+        : process.env.API_DOMAIN;
+      // Default folder is 'uploads'
+      const imageUrl = process.env.BUNNY_PULL_ZONE
+        ? `${pullZone}/uploads/${fileName}`
+        : `${process.env.API_DOMAIN}/${optimizedPath}`;
+
       imageData = {
-        url: `${process.env.API_DOMAIN}/${req.file.path}`,
+        url: imageUrl,
         alt: req.file.originalname,
+        publicId: null, // We aren't using cloudinary publicIds for this new flow, but keeping schema consistent if needed
       };
     }
 
@@ -416,14 +432,30 @@ const updateCategory = async (req, res) => {
     // Handle image upload or removal
     let imageData = {};
     if (req.file) {
-      // If there was an old image, delete from cloudinary
+      // If there was an old image, delete from cloudinary (legacy)
       if (category.image && category.image.publicId) {
         await cloudinary.uploader.destroy(category.image.publicId);
       }
 
+      // Generate the optimized path that will exist after processing
+      const optimizedPath = req.file.path
+        .replace("/temp/", "/optimized/")
+        .replace(/\.[^.]+$/, ".webp");
+
+      const fileName = require("path").basename(optimizedPath);
+      // Use BunnyCDN Pull Zone URL
+      const pullZone = process.env.BUNNY_PULL_ZONE
+        ? process.env.BUNNY_PULL_ZONE.replace(/\/$/, "")
+        : process.env.API_DOMAIN;
+      // Default folder is 'uploads'
+      const imageUrl = process.env.BUNNY_PULL_ZONE
+        ? `${pullZone}/uploads/${fileName}`
+        : `${process.env.API_DOMAIN}/${optimizedPath}`;
+
       imageData = {
-        url: `${process.env.API_DOMAIN}/${req.file.path}`,
+        url: imageUrl,
         alt: req.file.originalname,
+        publicId: null,
       };
 
       category.image = imageData;

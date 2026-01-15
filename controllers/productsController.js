@@ -32,7 +32,6 @@ const getProducts = async (req, res) => {
     } = req.query;
     // console.log({category, subcategory, subCategory});
 
-
     // Build base filter
     let filter = {
       status: "active",
@@ -56,7 +55,9 @@ const getProducts = async (req, res) => {
     }
 
     if (subcategory) {
-      filter.secondaryCategories = { $in: [mongoose.Types.ObjectId(subcategory)] };
+      filter.secondaryCategories = {
+        $in: [mongoose.Types.ObjectId(subcategory)],
+      };
     }
 
     // Type filtering
@@ -143,7 +144,6 @@ const getProducts = async (req, res) => {
     const pageNum = parseInt(page);
     const limitNum = parseInt(limit);
     const skip = (pageNum - 1) * limitNum;
-
 
     // Build aggregation pipeline for smart ranking
     const pipeline = [
@@ -544,18 +544,20 @@ const createProduct = async (req, res) => {
     if (req.files && req.files.length > 0) {
       for (let i = 0; i < req.files.length; i++) {
         const file = req.files[i];
-        
+
         // Generate the optimized path that will exist after processing
         const optimizedPath = file.path
-          .replace('/temp/', '/optimized/')
-          .replace(/\.[^.]+$/, '.webp');
-        
-        const fileName = require('path').basename(optimizedPath);
+          .replace("/temp/", "/optimized/")
+          .replace(/\.[^.]+$/, ".webp");
+
+        const fileName = require("path").basename(optimizedPath);
         // Use BunnyCDN Pull Zone URL
-        const pullZone = process.env.BUNNY_PULL_ZONE ? process.env.BUNNY_PULL_ZONE.replace(/\/$/, '') : process.env.API_DOMAIN;
+        const pullZone = process.env.BUNNY_PULL_ZONE
+          ? process.env.BUNNY_PULL_ZONE.replace(/\/$/, "")
+          : process.env.API_DOMAIN;
         // Default folder is 'uploads' as per bunnyCdn.js
-        const imageUrl = process.env.BUNNY_PULL_ZONE 
-          ? `${pullZone}/uploads/${fileName}` 
+        const imageUrl = process.env.BUNNY_PULL_ZONE
+          ? `${pullZone}/uploads/${fileName}`
           : `${process.env.API_DOMAIN}/${optimizedPath}`; // Fallback to local if no pull zone
 
         images.push({
@@ -661,21 +663,23 @@ const updateProduct = async (req, res) => {
     if (req.files && req.files.length > 0) {
       // Get current image count for proper ordering
       const currentImageCount = product.media.images.length;
-      
+
       // Build new image data using optimized paths (background processing)
       const newImages = req.files.map((file, index) => {
         // Generate the optimized path that will exist after processing
         const optimizedPath = file.path
-          .replace('/temp/', '/optimized/')
-          .replace(/\.[^.]+$/, '.webp');
-        
-        const fileName = require('path').basename(optimizedPath);
+          .replace("/temp/", "/optimized/")
+          .replace(/\.[^.]+$/, ".webp");
+
+        const fileName = require("path").basename(optimizedPath);
         // Use BunnyCDN Pull Zone URL
-        const pullZone = process.env.BUNNY_PULL_ZONE ? process.env.BUNNY_PULL_ZONE.replace(/\/$/, '') : process.env.API_DOMAIN;
-        // Default folder is 'uploads'
-        const imageUrl = process.env.BUNNY_PULL_ZONE 
-          ? `${pullZone}/uploads/${fileName}` 
-          : `${process.env.API_DOMAIN}/${optimizedPath}`;
+        const pullZone = process.env.BUNNY_PULL_ZONE
+          ? process.env.BUNNY_PULL_ZONE.replace(/\/$/, "")
+          : process.env.API_DOMAIN;
+        // Default folder is 'uploads' as per bunnyCdn.js
+        const imageUrl = process.env.BUNNY_PULL_ZONE
+          ? `${pullZone}/uploads/${fileName}`
+          : `${process.env.API_DOMAIN}/${optimizedPath}`; // Fallback to local if no pull zone
 
         return {
           url: imageUrl,
@@ -701,7 +705,7 @@ const updateProduct = async (req, res) => {
         "-" +
         Math.random().toString(36).substr(2, 9);
     }
-    
+
     if (description) product.description = description;
     if (primaryCategory) product.primaryCategory = primaryCategory;
     if (secondaryCategory) product.secondaryCategories = [secondaryCategory];
@@ -725,7 +729,8 @@ const updateProduct = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message: "Product updated successfully. New images are being processed and uploaded to CDN.",
+      message:
+        "Product updated successfully. New images are being processed and uploaded to CDN.",
       product,
     });
   } catch (error) {
