@@ -76,8 +76,8 @@ jobs:
                 container_name: craftory-api
                 restart: always
                 ports:
-                  # [CHANGE 6] Use port 3501 to avoid conflict with port 3500
-                  - "3501:3500"
+                  # [CHANGE 6] Use port 3500 to avoid conflict with port 3500
+                  - "3500:3500"
                 env_file:
                   - .env
                 volumes:

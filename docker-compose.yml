@@ -4,11 +4,10 @@ services:
     container_name: craftory-api
     restart: always
     ports:
-      - "127.0.0.1:3501:3500" # Map host 3501 to container 3500
+      - "127.0.0.1:3500:3500" # Map host 3500 to container 3500
     env_file:
       - .env
     volumes:
-      # [CHANGE 8] Update internal paths to /craftory
       - ./uploads:/craftory/uploads
       - ./storage:/craftory/storage
       - ./logs:/craftory/logs
