@@ -1,13 +1,14 @@
 services:
   api:
     image: ghcr.io/${GITHUB_REPOSITORY}:production
-    container_name: radient-api
+    container_name: craftory-api
     restart: always
     ports:
-      - "127.0.0.1:3501:3501"
+      - "127.0.0.1:3501:3500" # Map host 3501 to container 3500
     env_file:
       - .env
     volumes:
-      - ./uploads:/app/uploads
-      - ./storage:/app/storage
-      - ./logs:/app/logs
+      # [CHANGE 8] Update internal paths to /craftory
+      - ./uploads:/craftory/uploads
+      - ./storage:/craftory/storage
+      - ./logs:/craftory/logs

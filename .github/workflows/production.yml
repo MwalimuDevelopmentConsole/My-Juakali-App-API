@@ -59,29 +59,31 @@ jobs:
           key: ${{ secrets.KEY }}
           port: ${{ secrets.PORT }}
           script: |
-            # Navigate to app directory (create if doesn't exist)
-            mkdir -p ~/app
-            cd ~/app
+            # [CHANGE 4] Use 'craftory' folder on VPS to avoid conflict with RadiantDesk
+            mkdir -p ~/craftory
+            cd ~/craftory
             
             # Create .env file from secret
             echo "${{ secrets.ENV_FILE }}" > .env
             
-            # Create docker-compose.yml (or update it)
-            # We treat the workflow as the source of truth for the compose file content here to avoid sync issues
+            # Create docker-compose.yml
             cat <<EOF > docker-compose.yml
             services:
               api:
                 image: ghcr.io/${{ env.IMAGE_NAME }}:production
-                container_name: radient-api
+                # [CHANGE 5] Unique name for this project
+                container_name: craftory-api
                 restart: always
                 ports:
-                  - "3500:3500"
+                  # [CHANGE 6] Use port 3501 to avoid conflict with port 3500
+                  - "3501:3500"
                 env_file:
                   - .env
                 volumes:
-                  - ./uploads:/app/uploads
-                  - ./storage:/app/storage
-                  - ./logs:/app/logs
+                  # [CHANGE 7] Map to /craftory inside the container
+                  - ./uploads:/craftory/uploads
+                  - ./storage:/craftory/storage
+                  - ./logs:/craftory/logs
             EOF
             
             # Login to registry on the server
