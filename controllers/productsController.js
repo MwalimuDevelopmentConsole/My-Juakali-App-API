@@ -110,7 +110,7 @@ const getProducts = async (req, res) => {
             case "text":
               filter[`dynamicFields.${field.name}`] = new RegExp(
                 filterValue,
-                "i"
+                "i",
               );
               break;
             case "number":
@@ -122,12 +122,12 @@ const getProducts = async (req, res) => {
                 filter[`dynamicFields.${field.name}`] = {};
                 if (dynamicFilters[`${field.name}_min`]) {
                   filter[`dynamicFields.${field.name}`].$gte = parseFloat(
-                    dynamicFilters[`${field.name}_min`]
+                    dynamicFilters[`${field.name}_min`],
                   );
                 }
                 if (dynamicFilters[`${field.name}_max`]) {
                   filter[`dynamicFields.${field.name}`].$lte = parseFloat(
-                    dynamicFilters[`${field.name}_max`]
+                    dynamicFilters[`${field.name}_max`],
                   );
                 }
               }
@@ -333,6 +333,7 @@ const getProducts = async (req, res) => {
         createdAt: 1,
         updatedAt: 1,
         "sellerInfo._id": 1,
+        "sellerInfo.phone": 1,
         "sellerInfo.businessInfo.businessName": 1,
         "sellerInfo.ratings": 1,
         "sellerInfo.verification": 1,
@@ -455,7 +456,7 @@ const createProduct = async (req, res) => {
 
     // Check if seller exists and is active
     const seller = await Seller.findById(sellerId).populate(
-      "currentSubscription"
+      "currentSubscription",
     );
     if (!seller || seller.status !== "active" || !seller.isActive) {
       return res.status(403).json({
@@ -472,7 +473,7 @@ const createProduct = async (req, res) => {
       });
 
       const subscription = await UserSubscription.findById(
-        seller.currentSubscription
+        seller.currentSubscription,
       ).populate("plan");
 
       if (subscription && subscription.subscribedFeatures.maxListings) {
@@ -1015,7 +1016,7 @@ const searchProducts = async (req, res) => {
     })
       .populate(
         "seller",
-        "firstName lastName businessInfo.businessName isActive status"
+        "firstName lastName businessInfo.businessName isActive status",
       )
       .populate("primaryCategory", "name slug")
       .select("title slug pricing media.images location createdAt")
@@ -1027,7 +1028,7 @@ const searchProducts = async (req, res) => {
       (product) =>
         product.seller &&
         product.seller.isActive &&
-        product.seller.status === "active"
+        product.seller.status === "active",
     );
 
     // Get total count of matching products

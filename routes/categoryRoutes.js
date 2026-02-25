@@ -5,7 +5,7 @@ const router = express.Router();
 const categoriesController = require("../controllers/categoriesController");
 
 // Import middleware
-const { authenticateToken, isClient, isAdmin } = require("../middleware/auth");
+const { authenticateToken, isAdmin } = require("../middleware/auth");
 const {
   upload,
   handleMulterError,

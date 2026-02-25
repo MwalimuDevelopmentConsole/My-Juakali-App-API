@@ -6,6 +6,12 @@ const allowedOrigins = [
   "https://myjuakali.com",
   "https://www.myjuakali.com",
   "https://www.craftoryllc.com",
+  "https://www.craftorykenya.com",
+  "https://craftorykenya.com",
+  "https://craftorykenya.co.ke",
+  "https://www.craftorykenya.co.ke",
+  "https://craftory.co.ke",
+  "https://www.craftory.co.ke",
   "https://craftoryllc.com",
   "https://admin.craftoryllc.com",
   "https://www.admin.craftoryllc.com",
@@ -13,7 +19,8 @@ const allowedOrigins = [
   "https://j5rgfbf5-5173.euw.devtunnels.ms",
   "https://localhost",
   "https://app.craftory.com",
-  "https://192.168.100.72:5173"
+  "https://192.168.100.72:5173",
+  "http://192.168.100.72:5173"
 ];
 
 module.exports = allowedOrigins;

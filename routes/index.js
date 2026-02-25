@@ -50,6 +50,8 @@ router.use("/account-types", accountTypeRoutes);
 router.use("/dashboard", dashboardRoutes);
 router.use("/reports", reportRoutes);
 router.use("/upload", uploadExampleRoutes);
+router.use("/blogs", require("./postRoutes"));
+
 
 // 404 handler for API routes
 router.use("*", (req, res) => {
