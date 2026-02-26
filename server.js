@@ -17,7 +17,7 @@ const { initializeSocketServer, attachSocketIO, gracefulShutdown } = require('./
 
 const app = express();
 const server = http.createServer(app); // ✅ Create HTTP server for Socket.IO
-const PORT = process.env.PORT || 3500;
+const PORT = process.env.PORT || 3501;
 
 process.env.TZ = 'Africa/Nairobi';
 
