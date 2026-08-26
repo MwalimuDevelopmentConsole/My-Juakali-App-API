@@ -15,3 +15,5 @@ config/gcs-service-account.json
 !tsconfig.json
 docs
 UPLOAD_IMPLEMENTATION_SUMMARY.md
+
+//change to deploy
