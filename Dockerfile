@@ -1,21 +1,17 @@
-FROM node:24-slim AS base
-ENV PNPM_HOME="/pnpm"
-ENV PATH="$PNPM_HOME:$PATH"
-RUN corepack enable
-# [CHANGE 1] Set workdir to craftory
+FROM node:20-slim
+
 WORKDIR /craftory
 
-FROM base AS prod-deps
-# Install build dependencies for native modules (like bcrypt)
+# Install build dependencies for native packages
 RUN apt-get update && apt-get install -y python3 make g++ build-essential && rm -rf /var/lib/apt/lists/*
-COPY package.json pnpm-lock.yaml ./
-RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --prod --frozen-lockfile
 
-FROM base
-# [CHANGE 2] Copy from /craftory path
-COPY --from=prod-deps /craftory/node_modules /craftory/node_modules
-# [CHANGE 3] Copy source to /craftory
-COPY . /craftory
+COPY package.json ./
+
+RUN npm install --omit=dev
+
+COPY . .
+
 EXPOSE 3500
 RUN mkdir -p uploads storage logs
-CMD [ "npm", "start" ]
+
+CMD [ "node", "server.js" ]
