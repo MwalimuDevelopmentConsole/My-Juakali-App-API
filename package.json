@@ -1,6 +1,7 @@
 {
   "name": "my-juakali-api",
   "version": "1.0.0",
+  "packageManager": "pnpm@10.27.0",
   "description": "",
   "main": "server.js",
   "scripts": {
