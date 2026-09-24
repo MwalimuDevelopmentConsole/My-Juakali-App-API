@@ -8,9 +8,11 @@ const Marketer = require("../models/Marketer");
 
 const userTypes = {
   buyer: Buyer,
+  client: Buyer,
   seller: Seller,
   admin: Admin,
   marketer: Marketer,
+  agent: Marketer,
 };
 
 // Error handling wrapper
@@ -72,43 +74,59 @@ const generateTokens = (user, userType) => {
   return { accessToken, refreshToken };
 };
 
+// Helper to build search queries for either email or phone
+const buildIdentifierQuery = (input) => {
+  const trimmed = (input || "").trim();
+  const lower = trimmed.toLowerCase();
+  const queries = [{ email: lower }, { phone: trimmed }, { phone: lower }];
+
+  const digits = trimmed.replace(/[^\d+]/g, "");
+  if (digits) {
+    queries.push({ phone: digits });
+    if (digits.startsWith("0") && digits.length === 10) {
+      queries.push({ phone: `+254${digits.substring(1)}` });
+      queries.push({ phone: `254${digits.substring(1)}` });
+    } else if (digits.startsWith("+254") && digits.length === 13) {
+      queries.push({ phone: `0${digits.substring(4)}` });
+      queries.push({ phone: digits.substring(1) });
+    } else if (digits.startsWith("254") && digits.length === 12) {
+      queries.push({ phone: `0${digits.substring(3)}` });
+      queries.push({ phone: `+${digits}` });
+    }
+  }
+  return { $or: queries };
+};
+
 // ================================
 // AUTHENTICATION ENDPOINTS
 // ================================
 
 // Login
 const sellerBuyerAgentLogin = asyncHandler(async (req, res) => {
-  const { email, password, platform = "web" } = req.body;
+  const { email, phone, identifier, password, platform = "web" } = req.body;
+  const input = email || phone || identifier;
 
-  // console.log(req.body)
-
-  if (!email || !password) {
+  if (!input || !password) {
     const response = formatResponse(
       false,
       null,
-      "Email and password are required",
+      "Email/Phone and password are required",
       400
     );
     return res.status(response.statusCode).json(response);
   }
 
-  const formattedEmail = email.toLowerCase().trim();
+  const query = buildIdentifierQuery(input);
 
   // Find user
-  let user = await Marketer.findOne({
-    $or: [{ email: formattedEmail }, { phone: formattedEmail }],
-  });
+  let user = await Marketer.findOne(query);
 
   if (!user) {
-    user = await Seller.findOne({
-      $or: [{ email: formattedEmail }, { phone: formattedEmail }],
-    });
+    user = await Seller.findOne(query);
   }
 
   if (!user) {
-    user = await Buyer.findOne({
-      $or: [{ email: formattedEmail }, { phone: formattedEmail }],
-    });
+    user = await Buyer.findOne(query);
   }
 
   if (!user) {
@@ -133,8 +151,6 @@ const sellerBuyerAgentLogin = asyncHandler(async (req, res) => {
 
   // Generate tokens
   const { accessToken, refreshToken } = generateTokens(user, userType);
-
-  console.log({ accessToken, refreshToken });
 
   // Set refresh token in httpOnly cookie
   if (platform === "mobile") {
@@ -174,20 +190,23 @@ const sellerBuyerAgentLogin = asyncHandler(async (req, res) => {
 });
 
 const login = asyncHandler(async (req, res) => {
-  const { email, password, userType } = req.body;
+  const { email, phone, identifier, password, userType } = req.body;
+  const input = email || phone || identifier;
+  const normalizedUserType = userType ? userType.toLowerCase() : "";
 
-  if (!email || !password || !userType || !userTypes[userType]) {
+  if (!input || !password || !normalizedUserType || !userTypes[normalizedUserType]) {
     const response = formatResponse(
       false,
       null,
-      "Email and password are required",
+      "Email/Phone and password are required",
       400
     );
     return res.status(response.statusCode).json(response);
   }
 
   // Find user
-  const user = await userTypes[userType].findOne({ email });
+  const query = buildIdentifierQuery(input);
+  const user = await userTypes[normalizedUserType].findOne(query);
 
   if (!user) {
     const response = formatResponse(false, null, "Invalid credentials", 401);
@@ -208,7 +227,7 @@ const login = asyncHandler(async (req, res) => {
   }
 
   // Generate tokens
-  const { accessToken, refreshToken } = generateTokens(user, userType);
+  const { accessToken, refreshToken } = generateTokens(user, normalizedUserType);
 
   // Set refresh token in httpOnly cookie
   res.cookie("refreshToken", refreshToken, {
@@ -409,9 +428,10 @@ const verifyToken = asyncHandler(async (req, res) => {
 
 // Change password with current password verification
 const changePassword = asyncHandler(async (req, res) => {
-  const { currentPassword, password } = req.body;
+  const { currentPassword, password, newPassword } = req.body;
+  const targetPassword = password || newPassword;
 
-  if (!currentPassword || !password) {
+  if (!currentPassword || !targetPassword) {
     const response = formatResponse(
       false,
       null,
@@ -421,7 +441,7 @@ const changePassword = asyncHandler(async (req, res) => {
     return res.status(response.statusCode).json(response);
   }
 
-  if (password.length < 6) {
+  if (targetPassword.length < 6) {
     const response = formatResponse(
       false,
       null,
@@ -431,7 +451,15 @@ const changePassword = asyncHandler(async (req, res) => {
     return res.status(response.statusCode).json(response);
   }
 
-  const user = await userTypes[req.user.userType].findById(req.user.id);
+  const userTypeKey = (req.user?.userType || req.user?.role || "").toLowerCase();
+  const Model = userTypes[userTypeKey] || userTypes[req.user?.userType];
+
+  if (!Model) {
+    const response = formatResponse(false, null, "User type not supported", 400);
+    return res.status(response.statusCode).json(response);
+  }
+
+  const user = await Model.findById(req.user.id);
 
   if (!user) {
     const response = formatResponse(false, null, "User not found", 404);
@@ -454,7 +482,7 @@ const changePassword = asyncHandler(async (req, res) => {
   }
 
   // Hash and update new password
-  user.password = await bcrypt.hash(password, 12);
+  user.password = await bcrypt.hash(targetPassword, 12);
   await user.save();
 
   const response = formatResponse(true, null, "Password changed successfully");

@@ -54,6 +54,11 @@ router
     sellerController.updateDocumentStatus
   )
   .patch(
+    "/admin/verify-contact",
+    authenticateToken,
+    sellerController.adminVerifySellerContact
+  )
+  .patch(
     "/manage-capabilities",
     authenticateToken,
     sellerController.manageSellerCapabilities

@@ -39,6 +39,7 @@ router.use("/sellers", sellerRoutes);
 router.use("/categories", categoryRoutes);
 router.use("/auth/google", authGoogleRoutes);
 router.use("/admin", adminRoutes);
+router.use("/admins", adminRoutes);
 router.use("/products", productRoutes);
 router.use("/support", supportRoutes);
 router.use("/chat", chatRoutes);
@@ -49,8 +50,10 @@ router.use("/general-ledger", generalLedgerRoutes);
 router.use("/account-types", accountTypeRoutes);
 router.use("/dashboard", dashboardRoutes);
 router.use("/reports", reportRoutes);
-router.use("/upload", uploadExampleRoutes);
 router.use("/blogs", require("./postRoutes"));
+router.use("/photoshoots", require("./photoShootRoutes"));
+router.use("/agent-issues", require("./agentIssueRoutes"));
+router.use("/users", require("./userRoutes"));
 
 
 // 404 handler for API routes

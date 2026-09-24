@@ -489,6 +489,37 @@ const createProduct = async (req, res) => {
       }
     }
 
+    const safeParse = (val, fallback = undefined) => {
+      if (val === undefined || val === null || val === "") return fallback;
+      if (typeof val === "object") return val;
+      if (typeof val === "string") {
+        try {
+          return JSON.parse(val);
+        } catch (e) {
+          return fallback !== undefined ? fallback : val;
+        }
+      }
+      return fallback;
+    };
+
+    const safeParseArray = (val) => {
+      if (!val) return [];
+      if (Array.isArray(val)) return val.map((s) => String(s).trim()).filter(Boolean);
+      if (typeof val === "string") {
+        try {
+          const parsed = JSON.parse(val);
+          if (Array.isArray(parsed)) return parsed.map((s) => String(s).trim()).filter(Boolean);
+        } catch (e) {
+          // fallback to comma separated
+        }
+        return val
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean);
+      }
+      return [];
+    };
+
     const {
       title,
       description,
@@ -496,16 +527,21 @@ const createProduct = async (req, res) => {
       type,
       condition,
       primaryCategory,
+      secondaryCategory,
       secondaryCategories,
       pricing,
       location,
       dynamicFields,
       tags,
       keywords,
+      metaTitle,
+      metaDescription,
       inventory,
       serviceInfo,
     } = req.body;
-    const parsedPricing = JSON.parse(pricing);
+
+    const parsedPricing = safeParse(pricing, {}) || {};
+    const basePrice = parseFloat(parsedPricing.basePrice);
 
     // Validation
     if (
@@ -513,13 +549,30 @@ const createProduct = async (req, res) => {
       !description ||
       !type ||
       !primaryCategory ||
-      !parsedPricing.basePrice
+      isNaN(basePrice) ||
+      basePrice <= 0
     ) {
       return res.status(400).json({
         success: false,
         message:
-          "Required fields: title, description, type, category, and price",
+          "Required fields: title, description, type, category, and valid base price",
       });
+    }
+
+    // Original price vs base price validation & automatic discount calculation
+    if (parsedPricing.originalPrice !== undefined && parsedPricing.originalPrice !== null && parsedPricing.originalPrice !== "") {
+      const originalPrice = parseFloat(parsedPricing.originalPrice);
+      if (!isNaN(originalPrice) && originalPrice > 0) {
+        if (originalPrice <= basePrice) {
+          return res.status(400).json({
+            success: false,
+            message: "Original price must be greater than selling price",
+          });
+        }
+        parsedPricing.discountPercentage = Math.round(
+          ((originalPrice - basePrice) / originalPrice) * 100
+        );
+      }
     }
 
     // Validate category exists
@@ -571,30 +624,35 @@ const createProduct = async (req, res) => {
       }
     }
 
+    let parsedSecondaryCategories = safeParseArray(secondaryCategories);
+    if (secondaryCategory && !parsedSecondaryCategories.includes(secondaryCategory)) {
+      parsedSecondaryCategories.push(secondaryCategory);
+    }
+
     const productData = {
       title,
       slug,
       description,
-      shortDescription,
+      shortDescription: shortDescription || "",
       type,
       condition: condition || "new",
       seller: sellerId,
       primaryCategory,
-      secondaryCategories: JSON.parse(secondaryCategories) || [],
+      secondaryCategories: parsedSecondaryCategories,
       pricing: parsedPricing,
       location: {
-        ...location,
-        county: seller.location.county,
-        subcounty: seller.location.subcounty,
+        ...safeParse(location, {}),
+        county: seller.location?.county,
+        subcounty: seller.location?.subcounty,
       },
       media: { images },
-      dynamicFields: dynamicFields || {},
-      tags: tags ? tags.split(",").map((tag) => tag.trim()) : [],
-      keywords: keywords
-        ? keywords.split(",").map((keyword) => keyword.trim())
-        : [],
-      inventory: inventory || {},
-      serviceInfo: type === "service" ? serviceInfo : undefined,
+      dynamicFields: safeParse(dynamicFields, {}) || {},
+      tags: safeParseArray(tags),
+      keywords: safeParseArray(keywords),
+      metaTitle: metaTitle || title,
+      metaDescription: metaDescription || shortDescription || description?.slice(0, 160) || "",
+      inventory: safeParse(inventory, { quantity: 1, inStock: true }) || {},
+      serviceInfo: type === "service" ? safeParse(serviceInfo, {}) : undefined,
       status: "active",
     };
 
@@ -625,6 +683,37 @@ const createProduct = async (req, res) => {
 // @access  Seller (own products) or Admin
 const updateProduct = async (req, res) => {
   try {
+    const safeParse = (val, fallback = undefined) => {
+      if (val === undefined || val === null || val === "") return fallback;
+      if (typeof val === "object") return val;
+      if (typeof val === "string") {
+        try {
+          return JSON.parse(val);
+        } catch (e) {
+          return fallback !== undefined ? fallback : val;
+        }
+      }
+      return fallback;
+    };
+
+    const safeParseArray = (val) => {
+      if (!val) return [];
+      if (Array.isArray(val)) return val.map((s) => String(s).trim()).filter(Boolean);
+      if (typeof val === "string") {
+        try {
+          const parsed = JSON.parse(val);
+          if (Array.isArray(parsed)) return parsed.map((s) => String(s).trim()).filter(Boolean);
+        } catch (e) {
+          // fallback
+        }
+        return val
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean);
+      }
+      return [];
+    };
+
     const product = await Product.findById(req.params.id);
     if (!product) {
       return res.status(404).json({
@@ -648,45 +737,53 @@ const updateProduct = async (req, res) => {
       title,
       description,
       shortDescription,
+      type,
       condition,
       pricing,
       dynamicFields,
       tags,
       keywords,
+      metaTitle,
+      metaDescription,
       inventory,
       serviceInfo,
       status,
       primaryCategory,
       secondaryCategory,
+      secondaryCategories,
+      existingImages,
     } = req.body;
+
+    // Handle existing images filtering/removal if provided
+    if (existingImages !== undefined) {
+      const parsedExistingImages = safeParse(existingImages, []);
+      if (Array.isArray(parsedExistingImages)) {
+        product.media.images = parsedExistingImages;
+      }
+    }
 
     // Handle image uploads (if any new images) - use optimized paths
     if (req.files && req.files.length > 0) {
-      // Get current image count for proper ordering
       const currentImageCount = product.media.images.length;
 
-      // Build new image data using optimized paths (background processing)
       const newImages = req.files.map((file, index) => {
-        // Generate the optimized path that will exist after processing
         const optimizedPath = file.path
           .replace("/temp/", "/optimized/")
           .replace(/\.[^.]+$/, ".webp");
 
         const fileName = require("path").basename(optimizedPath);
-        // Use BunnyCDN Pull Zone URL
         const pullZone = process.env.BUNNY_PULL_ZONE
           ? process.env.BUNNY_PULL_ZONE.replace(/\/$/, "")
           : process.env.API_DOMAIN;
-        // Default folder is 'uploads' as per bunnyCdn.js
         const imageUrl = process.env.BUNNY_PULL_ZONE
           ? `${pullZone}/uploads/${fileName}`
-          : `${process.env.API_DOMAIN}/${optimizedPath}`; // Fallback to local if no pull zone
+          : `${process.env.API_DOMAIN}/${optimizedPath}`;
 
         return {
           url: imageUrl,
           publicId: null,
           alt: file.originalname,
-          isPrimary: currentImageCount === 0 && index === 0, // First image is primary only if no existing images
+          isPrimary: currentImageCount === 0 && index === 0,
           order: currentImageCount + index,
         };
       });
@@ -697,7 +794,6 @@ const updateProduct = async (req, res) => {
     // Update fields
     if (title) {
       product.title = title;
-      // Update slug if title changed
       product.slug =
         title
           .toLowerCase()
@@ -708,18 +804,46 @@ const updateProduct = async (req, res) => {
     }
 
     if (description) product.description = description;
+    if (type) product.type = type;
     if (primaryCategory) product.primaryCategory = primaryCategory;
     if (secondaryCategory) product.secondaryCategories = [secondaryCategory];
-    if (shortDescription) product.shortDescription = shortDescription;
+    if (secondaryCategories !== undefined) {
+      product.secondaryCategories = safeParseArray(secondaryCategories);
+    }
+    if (shortDescription !== undefined) product.shortDescription = shortDescription;
     if (condition) product.condition = condition;
-    if (pricing) product.pricing = { ...product.pricing, ...pricing };
-    if (dynamicFields) product.dynamicFields = dynamicFields;
-    if (tags) product.tags = tags.split(",").map((tag) => tag.trim());
-    if (keywords)
-      product.keywords = keywords.split(",").map((keyword) => keyword.trim());
-    if (inventory) product.inventory = { ...product.inventory, ...inventory };
-    if (serviceInfo)
-      product.serviceInfo = { ...product.serviceInfo, ...serviceInfo };
+
+    if (pricing !== undefined) {
+      const parsedPricing = safeParse(pricing, {});
+      const mergedPricing = { ...product.pricing.toObject(), ...parsedPricing };
+
+      if (mergedPricing.originalPrice !== undefined && mergedPricing.originalPrice !== null && mergedPricing.originalPrice !== "") {
+        const originalPrice = parseFloat(mergedPricing.originalPrice);
+        const basePrice = parseFloat(mergedPricing.basePrice);
+
+        if (!isNaN(originalPrice) && originalPrice > 0) {
+          if (originalPrice <= basePrice) {
+            return res.status(400).json({
+              success: false,
+              message: "Original price must be greater than selling price",
+            });
+          }
+          mergedPricing.discountPercentage = Math.round(
+            ((originalPrice - basePrice) / originalPrice) * 100
+          );
+        }
+      }
+      product.pricing = mergedPricing;
+    }
+
+    if (dynamicFields !== undefined) product.dynamicFields = safeParse(dynamicFields, {});
+    if (tags !== undefined) product.tags = safeParseArray(tags);
+    if (keywords !== undefined) product.keywords = safeParseArray(keywords);
+    if (metaTitle !== undefined) product.metaTitle = metaTitle;
+    if (metaDescription !== undefined) product.metaDescription = metaDescription;
+    if (inventory !== undefined) product.inventory = { ...product.inventory, ...safeParse(inventory, {}) };
+    if (serviceInfo !== undefined)
+      product.serviceInfo = { ...product.serviceInfo, ...safeParse(serviceInfo, {}) };
 
     // Only admins can change status
     if (status && req.user.userType === "admin") {
@@ -730,8 +854,7 @@ const updateProduct = async (req, res) => {
 
     res.status(200).json({
       success: true,
-      message:
-        "Product updated successfully. New images are being processed and uploaded to CDN.",
+      message: "Product updated successfully.",
       product,
     });
   } catch (error) {

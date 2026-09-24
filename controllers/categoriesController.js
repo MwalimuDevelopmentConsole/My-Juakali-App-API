@@ -319,10 +319,15 @@ const createCategory = async (req, res) => {
       });
     }
 
-    // Determine level
+    // Determine level and parent
     let level = 0;
-    if (parentCategory) {
-      const parent = await Category.findById(parentCategory);
+    const parentId =
+      parentCategory && parentCategory !== "" && parentCategory !== "null"
+        ? parentCategory
+        : null;
+
+    if (parentId) {
+      const parent = await Category.findById(parentId);
       if (!parent) {
         return res.status(404).json({
           success: false,
@@ -353,21 +358,45 @@ const createCategory = async (req, res) => {
       imageData = {
         url: imageUrl,
         alt: req.file.originalname,
-        publicId: null, // We aren't using cloudinary publicIds for this new flow, but keeping schema consistent if needed
+        publicId: null,
       };
+    }
+
+    let parsedDynamicFields = [];
+    if (dynamicFields) {
+      try {
+        parsedDynamicFields =
+          typeof dynamicFields === "string"
+            ? JSON.parse(dynamicFields)
+            : dynamicFields;
+      } catch (e) {
+        parsedDynamicFields = [];
+      }
+    }
+
+    let parsedKeywords = [];
+    if (keywords) {
+      if (Array.isArray(keywords)) {
+        parsedKeywords = keywords;
+      } else if (typeof keywords === "string") {
+        parsedKeywords = keywords
+          .split(",")
+          .map((k) => k.trim())
+          .filter(Boolean);
+      }
     }
 
     const categoryData = {
       name,
       slug,
-      description,
+      description: description || "",
       image: imageData,
-      parentCategory: parentCategory || null,
+      parentCategory: parentId,
       level,
-      dynamicFields: JSON.parse(dynamicFields) || [],
-      metaTitle,
-      metaDescription,
-      keywords: keywords ? keywords.split(",").map((k) => k.trim()) : [],
+      dynamicFields: parsedDynamicFields,
+      metaTitle: metaTitle || name,
+      metaDescription: metaDescription || description || "",
+      keywords: parsedKeywords,
     };
 
     const category = await Category.create(categoryData);
