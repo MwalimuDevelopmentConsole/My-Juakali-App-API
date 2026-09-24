@@ -25,6 +25,30 @@ router
     isAdmin,
     adminController.updateProductStatus
   )
+  .patch(
+    "/reset-user-password",
+    authenticateToken,
+    isAdmin,
+    adminController.resetUserPassword
+  )
+  .get(
+    "/profile/own",
+    authenticateToken,
+    isAdmin,
+    adminController.getOwnProfile
+  )
+  .patch(
+    "/profile/own",
+    authenticateToken,
+    isAdmin,
+    adminController.updateOwnProfile
+  )
+  .patch(
+    "/update-own/profile",
+    authenticateToken,
+    isAdmin,
+    adminController.updateOwnProfile
+  )
   .get("/:id", authenticateToken, isAdmin, adminController.getAdminById)
   .patch(
     "/:id/status",

@@ -37,6 +37,7 @@ router.post('/verify', authController.verifyToken);
 // ================================
 
 // Change password (requires authentication)
-router.patch('/change-password', authenticateToken,  authController.changePassword);
+router.patch('/change-password', authenticateToken, authController.changePassword);
+router.post('/change-password', authenticateToken, authController.changePassword);
 
 module.exports = router;

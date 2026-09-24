@@ -3,6 +3,8 @@ const Seller = require("../models/Seller");
 const Product = require("../models/Product");
 const Review = require("../models/Review");
 const UserSubscription = require("../models/SellerSubscription");
+const Marketer = require("../models/Marketer");
+const Buyer = require("../models/Buyer");
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
 
@@ -574,6 +576,175 @@ const deleteAdmin = async (req, res) => {
   }
 };
 
+// @desc    Admin reset password for any user (seller, agent, admin, buyer)
+// @route   PATCH /api/admin/reset-user-password
+// @access  Admin
+const resetUserPassword = async (req, res) => {
+  try {
+    const { userId, userType, newPassword } = req.body;
+
+    if (!userId || !userType || !newPassword) {
+      return res.status(400).json({
+        success: false,
+        message: "userId, userType, and newPassword are required",
+      });
+    }
+
+    if (String(newPassword).length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: "Password must be at least 6 characters long",
+      });
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 12);
+    let updatedUser = null;
+    const normalizedType = userType.toLowerCase();
+
+    if (normalizedType === "seller") {
+      updatedUser = await Seller.findByIdAndUpdate(
+        userId,
+        { password: hashedPassword },
+        { new: true }
+      ).select("-password");
+    } else if (["marketer", "agent"].includes(normalizedType)) {
+      updatedUser = await Marketer.findByIdAndUpdate(
+        userId,
+        { password: hashedPassword },
+        { new: true }
+      ).select("-password");
+    } else if (normalizedType === "admin") {
+      updatedUser = await Admin.findByIdAndUpdate(
+        userId,
+        { password: hashedPassword },
+        { new: true }
+      ).select("-password");
+    } else if (["buyer", "client"].includes(normalizedType)) {
+      updatedUser = await Buyer.findByIdAndUpdate(
+        userId,
+        { password: hashedPassword },
+        { new: true }
+      ).select("-password");
+    } else {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid userType. Allowed: seller, marketer, admin, buyer",
+      });
+    }
+
+    if (!updatedUser) {
+      return res.status(404).json({
+        success: false,
+        message: `${userType} account not found`,
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: `Password has been reset successfully for ${updatedUser.firstName || updatedUser.email || "user"}.`,
+    });
+  } catch (error) {
+    console.error("Admin reset user password error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Failed to reset user password",
+      error: error.message,
+    });
+  }
+};
+
+// @desc    Get logged in admin profile
+// @route   GET /api/admin/profile/own or /api/admins/profile/own
+// @access  Admin
+const getOwnProfile = async (req, res) => {
+  try {
+    const admin = await Admin.findById(req.user.id).select("-password");
+    if (!admin) {
+      return res.status(404).json({
+        success: false,
+        message: "Admin user not found",
+      });
+    }
+
+    const profileData = {
+      ...admin.toObject(),
+      profile: {
+        firstName: admin.firstName,
+        lastName: admin.lastName,
+        phone: admin.phone,
+        company: "Craftory",
+      },
+    };
+
+    res.status(200).json({
+      success: true,
+      data: profileData,
+      admin: profileData,
+      user: profileData,
+    });
+  } catch (error) {
+    console.error("Error fetching own admin profile:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server Error",
+      error: error.message,
+    });
+  }
+};
+
+// @desc    Update logged in admin profile
+// @route   PATCH /api/admin/profile/own or /api/admins/profile/own
+// @access  Admin
+const updateOwnProfile = async (req, res) => {
+  try {
+    const { firstName, lastName, phone, profile } = req.body;
+    const admin = await Admin.findById(req.user.id);
+    if (!admin) {
+      return res.status(404).json({
+        success: false,
+        message: "Admin not found",
+      });
+    }
+
+    if (firstName) admin.firstName = firstName.trim();
+    if (lastName) admin.lastName = lastName.trim();
+    if (phone) admin.phone = phone.trim();
+
+    if (profile) {
+      if (profile.firstName) admin.firstName = profile.firstName.trim();
+      if (profile.lastName) admin.lastName = profile.lastName.trim();
+      if (profile.phone) admin.phone = profile.phone.trim();
+    }
+
+    await admin.save();
+
+    const profileData = {
+      ...admin.toObject(),
+      profile: {
+        firstName: admin.firstName,
+        lastName: admin.lastName,
+        phone: admin.phone,
+        company: "Craftory",
+      },
+    };
+
+    res.status(200).json({
+      success: true,
+      message: "Profile updated successfully",
+      data: profileData,
+      admin: profileData,
+      user: profileData,
+    });
+  } catch (error) {
+    console.error("Error updating own admin profile:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server Error",
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   registerAdmin,
   getAdminDashboard,
@@ -584,4 +755,8 @@ module.exports = {
   getAdminById,
   updateAdminAccountStatus,
   deleteAdmin,
+  resetUserPassword,
+  getOwnProfile,
+  updateOwnProfile,
 };
+

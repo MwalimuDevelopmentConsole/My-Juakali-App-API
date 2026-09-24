@@ -1,10 +1,9 @@
+require('dotenv').config({ path: require('path').join(__dirname, '../.env') });
 const mongoose = require("mongoose");
 const bcrypt = require("bcrypt");
 const Admin = require("../models/Admin");
 
-
-
-const MONGO_URI = "mongodb://localhost:27017/my-juakali";
+const MONGO_URI = process.env.MONGO_URI;
 const SALT_ROUNDS = 10;
 
 mongoose.set('strictQuery', true);

@@ -23,9 +23,10 @@ const registerSeller = async (req, res) => {
       businessInfo,
       location,
       referralCode,
+      onboardedByAgent,
     } = req.body;
 
-    // Validation
+    // Validation - email is optional
     if (
       !password ||
       !phone ||
@@ -38,7 +39,7 @@ const registerSeller = async (req, res) => {
       return res.status(400).json({
         success: false,
         message:
-          "Required fields: email, password, phone, name, business name, specialties, and county",
+          "Required fields: password, phone, name, business name, specialties, and county",
       });
     }
 
@@ -49,10 +50,14 @@ const registerSeller = async (req, res) => {
       });
     }
 
-    const formattedEmail = email.toLowerCase().trim();
+    const formattedEmail =
+      email && typeof email === "string" && email.trim()
+        ? email.toLowerCase().trim()
+        : undefined;
 
     // Check if seller already exists
     const checkDuplicate = async (models, field, value) => {
+      if (!value) return null;
       const results = await Promise.all(
         models.map((model) => model.findOne({ [field]: value }).lean())
       );
@@ -62,10 +67,11 @@ const registerSeller = async (req, res) => {
 
     const models = [Buyer, Seller, Marketer];
 
-    const [emailExists, phoneExists] = await Promise.all([
-      checkDuplicate(models, "email", formattedEmail),
-      checkDuplicate(models, "phone", phone),
-    ]);
+    let emailExists = null;
+    if (formattedEmail) {
+      emailExists = await checkDuplicate(models, "email", formattedEmail);
+    }
+    const phoneExists = await checkDuplicate(models, "phone", phone);
 
     if (formattedEmail && emailExists) {
       return res.status(409).json({ message: "Email already registered" });
@@ -115,7 +121,7 @@ const registerSeller = async (req, res) => {
     const hashPassword = await bcrypt.hash(password, 10);
 
     const sellerData = {
-      email,
+      email: formattedEmail,
       password: hashPassword,
       phone,
       firstName,
@@ -131,10 +137,12 @@ const registerSeller = async (req, res) => {
         email: {
           token: emailVerificationToken,
           tokenExpires: new Date(Date.now() + 24 * 60 * 60 * 1000),
+          verified: false,
         },
         phone: {
           code: phoneVerificationCode,
           codeExpires: new Date(Date.now() + 15 * 60 * 1000), // 15 minutes
+          verified: false,
         },
       },
       referredBy,
@@ -177,7 +185,25 @@ const registerSeller = async (req, res) => {
       });
     }
 
-    // Generate tokens
+    // If onboarded by an agent, do NOT overwrite the agent's authentication cookie or log in as seller
+    if (onboardedByAgent) {
+      return res.status(201).json({
+        success: true,
+        message: `Seller account for ${seller.firstName} ${seller.lastName} created successfully.`,
+        seller: {
+          id: seller._id,
+          email: seller.email,
+          firstName: seller.firstName,
+          lastName: seller.lastName,
+          phone: seller.phone,
+          businessName: seller.businessInfo.businessName,
+          status: seller.status,
+          verificationScore: seller.verificationScore,
+        },
+      });
+    }
+
+    // Generate tokens for self-registration
     const { accessToken, refreshToken } = generateTokens(seller, "seller");
 
     // Set refresh token in httpOnly cookie
@@ -187,10 +213,6 @@ const registerSeller = async (req, res) => {
       sameSite: "strict",
       maxAge: 7 * 24 * 60 * 60 * 1000, // 7 days
     });
-
-    // TODO: Send verification email and SMS
-    // await sendVerificationEmail(seller.email, emailVerificationToken);
-    // await sendVerificationSMS(seller.phone, phoneVerificationCode);
 
     res.status(201).json({
       success: true,
@@ -261,6 +283,8 @@ const updateSellerProfile = async (req, res) => {
     const {
       firstName,
       lastName,
+      email,
+      phone,
       bio,
       businessInfo,
       location,
@@ -277,10 +301,47 @@ const updateSellerProfile = async (req, res) => {
       });
     }
 
+    const checkDuplicate = async (models, field, value) => {
+      if (!value) return null;
+      const results = await Promise.all(
+        models.map((model) => model.findOne({ [field]: value, _id: { $ne: seller._id } }).lean())
+      );
+      return results.find((item) => item !== null) || null;
+    };
+
+    const models = [Buyer, Seller, Marketer];
+
+    // Handle email update (optional)
+    if (email !== undefined) {
+      const formattedEmail =
+        email && typeof email === "string" && email.trim()
+          ? email.toLowerCase().trim()
+          : undefined;
+
+      if (formattedEmail && formattedEmail !== seller.email) {
+        const emailExists = await checkDuplicate(models, "email", formattedEmail);
+        if (emailExists) {
+          return res.status(409).json({ success: false, message: "Email already registered" });
+        }
+        seller.email = formattedEmail;
+      } else if (!formattedEmail) {
+        seller.email = undefined;
+      }
+    }
+
+    // Handle phone update
+    if (phone && phone !== seller.phone) {
+      const phoneExists = await checkDuplicate(models, "phone", phone);
+      if (phoneExists) {
+        return res.status(409).json({ success: false, message: "Phone number already registered" });
+      }
+      seller.phone = phone;
+    }
+
     // Update fields
     if (firstName) seller.firstName = firstName;
     if (lastName) seller.lastName = lastName;
-    if (bio) seller.bio = bio;
+    if (bio !== undefined) seller.bio = bio;
     if (businessInfo) {
       seller.businessInfo = { ...seller.businessInfo, ...businessInfo };
       if (businessInfo.specialties) {
@@ -302,6 +363,77 @@ const updateSellerProfile = async (req, res) => {
     res.status(200).json({
       success: true,
       message: "Profile updated successfully",
+      seller,
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Server Error",
+      error: error.message,
+    });
+  }
+};
+
+// @desc    Admin manually verify or unverify seller email or phone
+// @route   PATCH /api/sellers/admin/verify-contact
+// @access  Admin only
+const adminVerifySellerContact = async (req, res) => {
+  try {
+    const { sellerId, type, verified } = req.body; // type: 'email' | 'phone'
+    if (!sellerId || !["email", "phone"].includes(type)) {
+      return res.status(400).json({
+        success: false,
+        message: "sellerId and valid type ('email' or 'phone') are required",
+      });
+    }
+
+    const seller = await Seller.findById(sellerId);
+    if (!seller) {
+      return res.status(404).json({
+        success: false,
+        message: "Seller not found",
+      });
+    }
+
+    if (!seller.verification) {
+      seller.verification = {};
+    }
+    if (!seller.verification[type]) {
+      seller.verification[type] = {};
+    }
+
+    const isVerified = verified !== undefined ? Boolean(verified) : true;
+    seller.verification[type].verified = isVerified;
+    if (isVerified) {
+      seller.verification[type].verifiedAt = new Date();
+    } else {
+      seller.verification[type].verifiedAt = null;
+    }
+
+    // Recalculate verification score
+    // email: 20%, phone: 20%, identity: 30%, business: 30%
+    let score = 0;
+    if (seller.verification.email?.verified) score += 20;
+    if (seller.verification.phone?.verified) score += 20;
+    if (
+      seller.verification.identity?.status === "verified" ||
+      seller.verification.identity?.documents?.some((d) => d.status === "approved")
+    ) {
+      score += 30;
+    }
+    if (
+      seller.verification.business?.status === "verified" ||
+      seller.verification.business?.documents?.some((d) => d.status === "approved")
+    ) {
+      score += 30;
+    }
+    seller.verificationScore = Math.min(score, 100);
+
+    await seller.save();
+
+    res.status(200).json({
+      success: true,
+      message: `${type === "email" ? "Email" : "Phone"} verification status updated successfully`,
       seller,
     });
   } catch (error) {
@@ -1163,6 +1295,7 @@ module.exports = {
   registerSeller,
   getSellerProfile,
   updateSellerProfile,
+  adminVerifySellerContact,
   uploadVerificationDocuments,
   getSellerDashboard,
   getSellerOverview,
