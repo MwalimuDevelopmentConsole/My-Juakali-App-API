@@ -1,4 +1,4 @@
-require('dotenv').config({ path: require('path').join(__dirname, '../.env') });
+require("dotenv").config({ path: require("path").join(__dirname, "../.env") });
 const mongoose = require("mongoose");
 const bcrypt = require("bcrypt");
 const Admin = require("../models/Admin");
@@ -6,8 +6,7 @@ const Admin = require("../models/Admin");
 const MONGO_URI = process.env.MONGO_URI;
 const SALT_ROUNDS = 10;
 
-mongoose.set('strictQuery', true);
-
+mongoose.set("strictQuery", true);
 
 async function seedAdmin() {
   try {
@@ -39,32 +38,32 @@ async function seedAdmin() {
       security: {
         lastPasswordChange: new Date(),
         loginAttempts: 0,
-        twoFactorEnabled: false
+        twoFactorEnabled: false,
       },
       activity: {
         loginCount: 0,
         actionsPerformed: 0,
         lastAction: "Account Created",
-        lastActionAt: new Date()
+        lastActionAt: new Date(),
       },
       workingHours: {
         start: "08:00",
         end: "17:00",
-        timezone: "Africa/Nairobi"
+        timezone: "Africa/Nairobi",
       },
       preferences: {
         notifications: {
           email: {
             urgent: true,
             daily_summary: true,
-            system_alerts: true
+            system_alerts: true,
           },
           sms: {
             urgent: true,
-            system_down: true
-          }
-        }
-      }
+            system_down: true,
+          },
+        },
+      },
     });
 
     await admin.save();
@@ -72,7 +71,6 @@ async function seedAdmin() {
     console.log(`Email: ${admin.email}`);
     console.log(`Name: ${admin.fullName}`);
     console.log(`Role: ${admin.role}`);
-
   } catch (error) {
     console.error("Error:", error);
   } finally {
