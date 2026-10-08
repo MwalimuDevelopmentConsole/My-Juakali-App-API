@@ -40,9 +40,100 @@ const upload = multer({
   },
 });
 
+// Helper to escape special XML characters in SVG text
+const escapeXml = (unsafe) => {
+  return String(unsafe || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
+};
+
+// Helper to resolve seller and company watermark information
+const resolveWatermarkInfo = async (req) => {
+  const companyName = (req.body?.companyName || "craftory").trim();
+  let sellerName = "";
+
+  // 1. Explicitly provided in request body
+  if (req.body?.sellerName && typeof req.body.sellerName === "string" && req.body.sellerName.trim()) {
+    sellerName = req.body.sellerName.trim();
+  } else if (req.body?.businessName && typeof req.body.businessName === "string" && req.body.businessName.trim()) {
+    sellerName = req.body.businessName.trim();
+  }
+
+  // 2. From authenticated user (seller)
+  if (!sellerName && req.user) {
+    if (req.user.businessInfo?.businessName && req.user.businessInfo.businessName.trim()) {
+      sellerName = req.user.businessInfo.businessName.trim();
+    } else {
+      const personalName = [req.user.firstName, req.user.lastName].filter(Boolean).join(" ").trim();
+      if (personalName) {
+        sellerName = personalName;
+      } else if (req.user.fullName && req.user.fullName.trim()) {
+        sellerName = req.user.fullName.trim();
+      } else if (req.user.name && req.user.name.trim()) {
+        sellerName = req.user.name.trim();
+      }
+    }
+  }
+
+  // 3. Fallback for product update (PATCH /update/:id) when user is admin or seller info wasn't in req.user
+  if (!sellerName && req.params?.id) {
+    try {
+      const Product = require("../models/Product");
+      const product = await Product.findById(req.params.id).populate("seller", "firstName lastName businessInfo");
+      if (product?.seller) {
+        if (product.seller.businessInfo?.businessName && product.seller.businessInfo.businessName.trim()) {
+          sellerName = product.seller.businessInfo.businessName.trim();
+        } else {
+          sellerName = [product.seller.firstName, product.seller.lastName].filter(Boolean).join(" ").trim();
+        }
+      }
+    } catch (err) {
+      console.warn("Could not fetch product seller for watermark:", err.message);
+    }
+  }
+
+  // 4. Fallback for product creation when admin provides seller or sellerId in body
+  if (!sellerName && (req.body?.seller || req.body?.sellerId)) {
+    try {
+      const Seller = require("../models/Seller");
+      const seller = await Seller.findById(req.body.seller || req.body.sellerId).select("firstName lastName businessInfo");
+      if (seller) {
+        if (seller.businessInfo?.businessName && seller.businessInfo.businessName.trim()) {
+          sellerName = seller.businessInfo.businessName.trim();
+        } else {
+          sellerName = [seller.firstName, seller.lastName].filter(Boolean).join(" ").trim();
+        }
+      }
+    } catch (err) {
+      console.warn("Could not fetch seller for watermark:", err.message);
+    }
+  }
+
+  return {
+    sellerName,
+    companyName,
+  };
+};
+
 // Process image: add watermark and optimize
-const processImage = async (filePath, businessName) => {
+const processImage = async (filePath, watermarkOptions = {}, companyNameOverride = null) => {
   try {
+    let sellerName = "";
+    let companyName = "craftory";
+
+    if (typeof watermarkOptions === "string") {
+      sellerName = watermarkOptions;
+      if (companyNameOverride) {
+        companyName = companyNameOverride;
+      }
+    } else if (watermarkOptions && typeof watermarkOptions === "object") {
+      sellerName = watermarkOptions.sellerName || watermarkOptions.businessName || "";
+      companyName = watermarkOptions.companyName || companyNameOverride || "craftory";
+    }
+
     let image = sharp(filePath);
     let metadata = await image.metadata();
 
@@ -59,38 +150,73 @@ const processImage = async (filePath, businessName) => {
       metadata = await image.metadata();
     }
 
-    // Watermark Configuration - Minimal & Professional
-    // Placing it in bottom-right corner with subtle styling
+    // Watermark Configuration - Centered to prevent image cropping/theft
     const width = metadata.width;
     const height = metadata.height;
+    const minDim = Math.min(width, height);
 
-    // Calculate padding (3% of smaller dimension for consistent spacing)
-    const padding = Math.floor(Math.min(width, height) * 0.03);
+    // Font size relative to smaller dimension for balanced center placement
+    const fontSize = Math.max(Math.floor(minDim * 0.048), 18);
+    const companyFontSize = Math.max(Math.floor(fontSize * 0.72), 13);
 
-    // Font size relative to image width (approx 2.5%, min 14px)
-    const fontSize = Math.max(Math.floor(width * 0.025), 14);
+    const cleanSeller = (sellerName || "").trim().toUpperCase();
+    const cleanCompany = (companyName || "craftory").trim().toUpperCase();
 
-    const text = (businessName || "").toUpperCase();
+    const safeSeller = escapeXml(cleanSeller);
+    const safeCompany = escapeXml(cleanCompany);
 
-    // Create professional SVG watermark
-    // White text with subtle drop shadow for visibility on any background
-    // Bottom-right aligned
+    let content = "";
+    if (safeSeller && safeSeller !== safeCompany) {
+      const lineGap = Math.floor(fontSize * 0.35);
+      // Vertically centered around height / 2
+      const ySeller = Math.floor(height / 2 - lineGap / 2);
+      const yCompany = Math.floor(height / 2 + companyFontSize + lineGap / 2);
+
+      content = `
+        <text x="${width / 2}" y="${ySeller}" class="center-seller-watermark">${safeSeller}</text>
+        <text x="${width / 2}" y="${yCompany}" class="center-company-watermark">${safeCompany}</text>
+      `;
+    } else {
+      const ySolo = Math.floor(height / 2 + fontSize * 0.35);
+      content = `
+        <text x="${width / 2}" y="${ySolo}" class="center-solo-watermark">${safeCompany || safeSeller}</text>
+      `;
+    }
+
+    // Create professional SVG watermark placed at the center
+    // Semi-transparent with drop shadow for clarity on any background
     const svgWatermark = `
       <svg width="${width}" height="${height}">
         <style>
-          .watermark { 
-            fill: rgba(255, 255, 255, 0.7);
+          .center-seller-watermark { 
+            fill: rgba(255, 255, 255, 0.6);
             font-size: ${fontSize}px; 
-            font-family: 'Helvetica Neue', Arial, sans-serif; 
-            font-weight: 500;
-            text-anchor: end;
-            filter: drop-shadow(0px 1px 3px rgba(0,0,0,0.5));
-            letter-spacing: 0.05em;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; 
+            font-weight: 700;
+            text-anchor: middle;
+            filter: drop-shadow(0px 2px 5px rgba(0,0,0,0.7)) drop-shadow(0px 0px 2px rgba(0,0,0,0.8));
+            letter-spacing: 0.08em;
+          }
+          .center-company-watermark { 
+            fill: rgba(255, 255, 255, 0.5);
+            font-size: ${companyFontSize}px; 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; 
+            font-weight: 600;
+            text-anchor: middle;
+            filter: drop-shadow(0px 2px 5px rgba(0,0,0,0.7)) drop-shadow(0px 0px 2px rgba(0,0,0,0.8));
+            letter-spacing: 0.16em;
+          }
+          .center-solo-watermark { 
+            fill: rgba(255, 255, 255, 0.6);
+            font-size: ${fontSize}px; 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; 
+            font-weight: 700;
+            text-anchor: middle;
+            filter: drop-shadow(0px 2px 5px rgba(0,0,0,0.7)) drop-shadow(0px 0px 2px rgba(0,0,0,0.8));
+            letter-spacing: 0.12em;
           }
         </style>
-        <text x="${width - padding}" y="${
-      height - padding
-    }" class="watermark">${text}</text>
+        ${content}
       </svg>
     `;
 
@@ -142,7 +268,6 @@ const processImage = async (filePath, businessName) => {
   } catch (error) {
     console.error("Error processing image:", error);
     // Don't throw error to prevent crashing entire upload if one image fails
-    // Return null or error object if needed, but for now we log it
     return null;
   }
 };
@@ -150,7 +275,7 @@ const processImage = async (filePath, businessName) => {
 // Middleware to process uploaded images ASYNCHRONOUSLY
 const processUploadedImages = async (req, res, next) => {
   try {
-    const businessName = req.body.businessName || "";
+    const watermarkInfo = await resolveWatermarkInfo(req);
 
     // Store original file info for immediate response
     if (req.file) {
@@ -174,25 +299,27 @@ const processUploadedImages = async (req, res, next) => {
     setImmediate(async () => {
       try {
         if (req.file) {
-          await processImage(req.file.path, businessName);
+          await processImage(req.file.path, watermarkInfo);
         } else if (req.files) {
           if (Array.isArray(req.files)) {
             await Promise.all(
-              req.files.map((file) => processImage(file.path, businessName))
+              req.files.map((file) => processImage(file.path, watermarkInfo))
             );
           } else {
             const promises = [];
             for (const fieldName in req.files) {
               promises.push(
                 ...req.files[fieldName].map((file) =>
-                  processImage(file.path, businessName)
+                  processImage(file.path, watermarkInfo)
                 )
               );
             }
             await Promise.all(promises);
           }
         }
-        console.log("✅ Background image processing completed");
+        console.log(
+          `✅ Background image processing completed with watermark: ${watermarkInfo.sellerName || "N/A"} | ${watermarkInfo.companyName}`
+        );
       } catch (error) {
         console.error("Background image processing error:", error);
       }
@@ -236,6 +363,8 @@ const handleMulterError = (error, req, res, next) => {
 
 module.exports = {
   upload,
+  processImage,
   processUploadedImages,
+  resolveWatermarkInfo,
   handleMulterError,
 };
