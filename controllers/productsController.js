@@ -389,11 +389,65 @@ const getProducts = async (req, res) => {
   }
 };
 
-// @desc    Get single product
+// @desc    Get single product by ID or Slug
 // @access  Public
 const getProduct = async (req, res) => {
   try {
-    const product = await Product.findById(req.params.id)
+    const rawId = req.params.id || req.query.id;
+    const rawSlug = req.params.slug || req.query.slug;
+
+    // Filter out invalid placeholder strings like "undefined" or "null"
+    const cleanId =
+      rawId && rawId !== "undefined" && rawId !== "null"
+        ? String(rawId).trim()
+        : null;
+    const cleanSlug =
+      rawSlug && rawSlug !== "undefined" && rawSlug !== "null"
+        ? String(rawSlug).trim()
+        : null;
+
+    if (!cleanId && !cleanSlug) {
+      return res.status(400).json({
+        success: false,
+        message: "Product ID or slug is required",
+      });
+    }
+
+    const conditions = [];
+
+    // Helper to evaluate and push match criteria
+    const addConditionsFor = (val) => {
+      if (!val) return;
+      if (
+        mongoose.Types.ObjectId.isValid(val) &&
+        /^[0-9a-fA-F]{24}$/.test(val)
+      ) {
+        conditions.push({ _id: val });
+      }
+      // Value might be a slug
+      conditions.push({ slug: val });
+    };
+
+    if (cleanId) addConditionsFor(cleanId);
+    if (cleanSlug) addConditionsFor(cleanSlug);
+
+    // Deduplicate conditions
+    const uniqueConditions = [];
+    const seen = new Set();
+    for (const cond of conditions) {
+      const key = cond._id ? `id:${cond._id}` : `slug:${cond.slug}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        uniqueConditions.push(cond);
+      }
+    }
+
+    const query =
+      uniqueConditions.length === 1
+        ? uniqueConditions[0]
+        : { $or: uniqueConditions };
+
+    const product = await Product.findOne(query)
       .populate({
         path: "seller",
         select:
@@ -419,7 +473,7 @@ const getProduct = async (req, res) => {
 
     // Check if product is active and seller is active
     if (
-      (product.status !== "active" || product.seller.status !== "active") &&
+      (product.status !== "active" || product.seller?.status !== "active") &&
       !["Seller", "Admin"].includes(req?.user?.userType)
     ) {
       return res.status(404).json({
@@ -428,8 +482,8 @@ const getProduct = async (req, res) => {
       });
     }
 
-    // Increment view count
-    await Product.findByIdAndUpdate(req.params.id, {
+    // Increment view count using product._id
+    await Product.findByIdAndUpdate(product._id, {
       $inc: { "stats.views": 1, "stats.uniqueViews": 1 },
       $set: { "stats.lastViewed": new Date() },
     });

@@ -56,6 +56,7 @@ router.use("/agent-issues", require("./agentIssueRoutes"));
 router.use("/users", require("./userRoutes"));
 router.use("/reset-password", require("./resetPasswordRoutes"));
 router.use("/auth/reset-password", require("./resetPasswordRoutes"));
+router.use("/telegram-bot", require("./telegramBotRoutes"));
 
 
 // 404 handler for API routes
