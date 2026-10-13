@@ -3,7 +3,7 @@ const axios = require("axios");
 const router = express.Router();
 
 // The bot service runs locally on the same server (port 4000 by default)
-const BOT_SERVICE_URL = process.env.BOT_SERVICE_URL || "http://127.0.0.1:4000" || "http://localhost:4000";
+const BOT_SERVICE_URL = process.env.BOT_SERVICE_URL || "http://127.0.0.1:4040" || "http://localhost:4040";
 
 /**
  * Universal proxy forwarder: Forwards any request from /api/telegram-bot/*
