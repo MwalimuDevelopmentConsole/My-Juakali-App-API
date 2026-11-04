@@ -1267,7 +1267,7 @@ const getAllSellers = async (req, res) => {
   try {
     const sellers = await Seller.find(query)
       .select(
-        "firstName lastName email phone businessInfo.businessName status isActive verificationScore createdAt"
+        "firstName lastName email phone businessInfo location status isActive verificationScore createdAt"
       )
       .sort(sortOptions)
       .skip((page - 1) * limit)

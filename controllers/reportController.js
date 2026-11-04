@@ -1211,6 +1211,173 @@ const getFinancialSummaryReport = async (req, res) => {
   }
 };
 
+// @desc    Get artisan list report (all artisans in system)
+// @route   GET /api/reports/artisan-list
+// @access  Private/Admin
+const getArtisanListReport = async (req, res) => {
+  try {
+    const {
+      page = 1,
+      limit = "all", // Default to fetching all artisans in the system
+      search = "",
+      county = "",
+      status = "",
+      startDate,
+      endDate,
+      sortBy = "createdAt",
+      sortOrder = "desc",
+      exportAll = "false",
+    } = req.query;
+
+    const query = {};
+
+    // Search filter across artisan name, business name, location, and phone
+    if (search && search.trim()) {
+      const searchRegex = new RegExp(search.trim(), "i");
+      query.$or = [
+        { firstName: searchRegex },
+        { lastName: searchRegex },
+        { phone: searchRegex },
+        { email: searchRegex },
+        { "businessInfo.businessName": searchRegex },
+        { "location.county": searchRegex },
+        { "location.subcounty": searchRegex },
+        { "location.ward": searchRegex },
+        { "location.address": searchRegex },
+      ];
+    }
+
+    if (county && county.trim()) {
+      query["location.county"] = new RegExp("^" + county.trim() + "$", "i");
+    }
+
+    if (status && status.trim()) {
+      query.status = status.trim();
+    }
+
+    if (startDate || endDate) {
+      query.createdAt = {};
+      if (startDate) {
+        query.createdAt.$gte = new Date(startDate);
+      }
+      if (endDate) {
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        query.createdAt.$lte = end;
+      }
+    }
+
+    const sortOptions = {};
+    if (sortBy === "artisanName" || sortBy === "name") {
+      sortOptions.firstName = sortOrder === "asc" ? 1 : -1;
+      sortOptions.lastName = sortOrder === "asc" ? 1 : -1;
+    } else if (sortBy === "businessName") {
+      sortOptions["businessInfo.businessName"] = sortOrder === "asc" ? 1 : -1;
+    } else if (sortBy === "location") {
+      sortOptions["location.county"] = sortOrder === "asc" ? 1 : -1;
+    } else if (sortBy === "phone") {
+      sortOptions.phone = sortOrder === "asc" ? 1 : -1;
+    } else {
+      sortOptions[sortBy] = sortOrder === "asc" ? 1 : -1;
+    }
+
+    const isAll = limit === "all" || limit === "0" || !limit || exportAll === "true";
+    const pageNum = parseInt(page, 10) || 1;
+    const limitNum = isAll ? null : parseInt(limit, 10) || 20;
+
+    let artisanQuery = Seller.find(query)
+      .select(
+        "firstName lastName phone email businessInfo location status isActive createdAt verificationScore"
+      )
+      .sort(sortOptions);
+
+    if (!isAll && limitNum) {
+      artisanQuery = artisanQuery.skip((pageNum - 1) * limitNum).limit(limitNum);
+    }
+
+    // Fetch data and counts concurrently across all artisans in the system
+    const [artisans, totalFiltered, totalAll, totalActive, totalPending, distinctCounties] = await Promise.all([
+      artisanQuery.lean(),
+      Seller.countDocuments(query),
+      Seller.countDocuments(),
+      Seller.countDocuments({ status: "active" }),
+      Seller.countDocuments({ status: "pending" }),
+      Seller.distinct("location.county", { "location.county": { $ne: null, $nin: ["", null] } }),
+    ]);
+
+    // Format all artisans in system for the report
+    const formattedArtisans = artisans.map((artisan) => {
+      const firstName = artisan.firstName || "";
+      const lastName = artisan.lastName || "";
+      const artisanName = (firstName + " " + lastName).trim() || "N/A";
+      const businessName = artisan.businessInfo?.businessName || "N/A";
+
+      const locParts = [];
+      if (artisan.location?.address) locParts.push(artisan.location.address);
+      if (artisan.location?.ward) locParts.push(artisan.location.ward);
+      if (artisan.location?.subcounty) locParts.push(artisan.location.subcounty);
+      if (artisan.location?.county) locParts.push(artisan.location.county);
+      const formattedLocation = locParts.length > 0 ? locParts.join(", ") : "Not Specified";
+
+      return {
+        _id: artisan._id,
+        artisanName,
+        firstName,
+        lastName,
+        businessName,
+        businessType: artisan.businessInfo?.businessType || "individual",
+        specialties: artisan.businessInfo?.specialties || [],
+        phone: artisan.phone || "N/A",
+        email: artisan.email || "N/A",
+        location: {
+          county: artisan.location?.county || "",
+          subcounty: artisan.location?.subcounty || "",
+          ward: artisan.location?.ward || "",
+          address: artisan.location?.address || "",
+          landmark: artisan.location?.landmark || "",
+          formatted: formattedLocation,
+        },
+        status: artisan.status || "pending",
+        isActive: artisan.isActive !== false,
+        verificationScore: artisan.verificationScore || 0,
+        createdAt: artisan.createdAt,
+      };
+    });
+
+    const totalPages = isAll ? 1 : Math.ceil(totalFiltered / (limitNum || 20)) || 1;
+
+    res.status(200).json({
+      success: true,
+      data: {
+        artisans: formattedArtisans,
+        pagination: {
+          total: totalFiltered,
+          page: isAll ? 1 : pageNum,
+          limit: isAll ? totalFiltered : limitNum,
+          totalPages,
+          hasMore: !isAll && pageNum < totalPages,
+          isAll,
+        },
+        summary: {
+          totalArtisans: totalAll,
+          filteredCount: totalFiltered,
+          activeArtisans: totalActive,
+          pendingArtisans: totalPending,
+          totalCounties: distinctCounties.filter(Boolean).length,
+        },
+        availableCounties: distinctCounties.filter(Boolean).sort(),
+      },
+    });
+  } catch (error) {
+    console.error("Error generating artisan list report:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error generating artisan list report",
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   getRevenueReport,
   getUserGrowthReport,
@@ -1219,4 +1386,5 @@ module.exports = {
   getMarketerPerformanceReport,
   getSearchAnalyticsReport,
   getFinancialSummaryReport,
+  getArtisanListReport,
 };
