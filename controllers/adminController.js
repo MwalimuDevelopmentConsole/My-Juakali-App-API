@@ -79,7 +79,7 @@ const registerAdmin = async (req, res) => {
       phone,
       role,
       department,
-      permissions: permissions || {},
+      permissions: Array.isArray(permissions) ? permissions : [],
       reportsTo,
     };
 
@@ -745,7 +745,133 @@ const updateOwnProfile = async (req, res) => {
   }
 };
 
+// @desc    Update admin permissions
+// @route   PATCH /api/admins/:id/permissions
+// @access  Super Admin only
+const updateAdminPermissions = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { permissions } = req.body;
+
+    if (!Array.isArray(permissions)) {
+      return res.status(400).json({
+        success: false,
+        message: "Permissions must be an array of strings",
+      });
+    }
+
+    const admin = await Admin.findById(id);
+    if (!admin) {
+      return res.status(404).json({
+        success: false,
+        message: "Admin not found",
+      });
+    }
+
+    admin.permissions = permissions;
+    await admin.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Admin permissions updated successfully",
+      admin: {
+        id: admin._id,
+        permissions: admin.permissions,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      message: "Server Error",
+      error: error.message,
+    });
+  }
+};
+
+
+// @desc    Update admin user details (Admin/Super Admin management)
+// @route   PATCH /api/admins/:id or /api/admin/:id
+// @access  Admin only
+const updateAdmin = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const {
+      firstName,
+      lastName,
+      email,
+      phone,
+      role,
+      department,
+      permissions,
+      isActive,
+      status,
+    } = req.body;
+
+    const admin = await Admin.findById(id);
+    if (!admin) {
+      return res.status(404).json({
+        success: false,
+        message: "Admin user not found",
+      });
+    }
+
+    // Check email uniqueness if email is changed
+    if (email && email.toLowerCase().trim() !== admin.email) {
+      const existing = await Admin.findOne({
+        email: email.toLowerCase().trim(),
+        _id: { $ne: id },
+      });
+      if (existing) {
+        return res.status(409).json({
+          success: false,
+          message: "An admin with this email already exists",
+        });
+      }
+      admin.email = email.toLowerCase().trim();
+    }
+
+    if (firstName) admin.firstName = firstName.trim();
+    if (lastName) admin.lastName = lastName.trim();
+    if (phone) admin.phone = phone.trim();
+    if (role) admin.role = role;
+    if (department) admin.department = department;
+    if (Array.isArray(permissions)) admin.permissions = permissions;
+    if (isActive !== undefined) {
+      admin.isActive = Boolean(isActive);
+      admin.status = admin.isActive ? "active" : "inactive";
+    }
+    if (status) admin.status = status;
+
+    await admin.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Admin user updated successfully",
+      admin: {
+        _id: admin._id,
+        firstName: admin.firstName,
+        lastName: admin.lastName,
+        email: admin.email,
+        phone: admin.phone,
+        role: admin.role,
+        department: admin.department,
+        permissions: admin.permissions,
+        isActive: admin.isActive,
+        status: admin.status,
+      },
+    });
+  } catch (error) {
+    console.error("Error updating admin user:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server Error",
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
+  updateAdmin,
   registerAdmin,
   getAdminDashboard,
   updateSellerStatus,
@@ -758,5 +884,6 @@ module.exports = {
   resetUserPassword,
   getOwnProfile,
   updateOwnProfile,
+  updateAdminPermissions,
 };
 

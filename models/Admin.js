@@ -49,7 +49,10 @@ const adminSchema = new Schema(
       required: true,
       index: true,
     },
-    permissions: [],
+    permissions: {
+      type: [String],
+      default: [],
+    },
 
     // Account Status
     isActive: {
@@ -170,5 +173,12 @@ adminSchema.virtual("fullName").get(function () {
 adminSchema.virtual("isLocked").get(function () {
   return !!(this.security.lockUntil && this.security.lockUntil > Date.now());
 });
+
+// Helper method to check permission
+adminSchema.methods.hasPermission = function (permissionKey) {
+  if (this.role === "super_admin") return true;
+  if (!this.permissions || !Array.isArray(this.permissions)) return false;
+  return this.permissions.includes(permissionKey);
+};
 
 module.exports = mongoose.model("Admin", adminSchema);

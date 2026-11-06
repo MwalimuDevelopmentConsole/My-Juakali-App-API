@@ -1222,6 +1222,8 @@ const getArtisanListReport = async (req, res) => {
       search = "",
       county = "",
       status = "",
+      artisanId = "",
+      agentId = "",
       startDate,
       endDate,
       sortBy = "createdAt",
@@ -1253,6 +1255,14 @@ const getArtisanListReport = async (req, res) => {
 
     if (status && status.trim()) {
       query.status = status.trim();
+    }
+
+    if (artisanId && artisanId.trim()) {
+      query._id = artisanId.trim();
+    }
+
+    if (agentId && agentId.trim()) {
+      query.referredBy = agentId.trim();
     }
 
     if (startDate || endDate) {
@@ -1287,8 +1297,9 @@ const getArtisanListReport = async (req, res) => {
 
     let artisanQuery = Seller.find(query)
       .select(
-        "firstName lastName phone email businessInfo location status isActive createdAt verificationScore"
+        "firstName lastName phone email businessInfo location status isActive createdAt verificationScore referredBy"
       )
+      .populate("referredBy", "firstName lastName phone email")
       .sort(sortOptions);
 
     if (!isAll && limitNum) {
@@ -1319,6 +1330,11 @@ const getArtisanListReport = async (req, res) => {
       if (artisan.location?.county) locParts.push(artisan.location.county);
       const formattedLocation = locParts.length > 0 ? locParts.join(", ") : "Not Specified";
 
+      const agentFirstName = artisan.referredBy?.firstName || "";
+      const agentLastName = artisan.referredBy?.lastName || "";
+      const onboardingAgent = (agentFirstName + " " + agentLastName).trim() || "Direct / Organic";
+      const agentPhone = artisan.referredBy?.phone || "N/A";
+
       return {
         _id: artisan._id,
         artisanName,
@@ -1329,6 +1345,9 @@ const getArtisanListReport = async (req, res) => {
         specialties: artisan.businessInfo?.specialties || [],
         phone: artisan.phone || "N/A",
         email: artisan.email || "N/A",
+        onboardingAgent,
+        agentPhone,
+        referredBy: artisan.referredBy || null,
         location: {
           county: artisan.location?.county || "",
           subcounty: artisan.location?.subcounty || "",
@@ -1378,6 +1397,308 @@ const getArtisanListReport = async (req, res) => {
   }
 };
 
+// @desc    Get agent / marketer list report
+// @route   GET /api/reports/agent-list
+// @access  Private/Admin
+const getAgentListReport = async (req, res) => {
+  try {
+    const {
+      page = 1,
+      limit = "all",
+      search = "",
+      county = "",
+      status = "",
+      startDate,
+      endDate,
+      sortBy = "createdAt",
+      sortOrder = "desc",
+      exportAll = "false",
+    } = req.query;
+
+    const query = {};
+
+    if (search && search.trim()) {
+      const searchRegex = new RegExp(search.trim(), "i");
+      query.$or = [
+        { firstName: searchRegex },
+        { lastName: searchRegex },
+        { phone: searchRegex },
+        { email: searchRegex },
+        { referralCode: searchRegex },
+        { "marketerInfo.referralCode": searchRegex },
+      ];
+    }
+
+    if (status && status.trim()) {
+      query.status = status.trim();
+    }
+
+    if (county && county.trim()) {
+      query.assignedCounties = { $in: [new RegExp(county.trim(), "i")] };
+    }
+
+    if (startDate || endDate) {
+      query.createdAt = {};
+      if (startDate) {
+        query.createdAt.$gte = new Date(startDate);
+      }
+      if (endDate) {
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        query.createdAt.$lte = end;
+      }
+    }
+
+    const isAll = limit === "all" || limit === "0" || !limit || exportAll === "true";
+    const pageNum = parseInt(page, 10) || 1;
+    const limitNum = isAll ? null : parseInt(limit, 10) || 20;
+
+    let agentQuery = Marketer.find(query).sort({ [sortBy]: sortOrder === "asc" ? 1 : -1 });
+    if (!isAll && limitNum) {
+      agentQuery = agentQuery.skip((pageNum - 1) * limitNum).limit(limitNum);
+    }
+
+    const [agents, totalFiltered, totalAll, totalActive] = await Promise.all([
+      agentQuery.lean(),
+      Marketer.countDocuments(query),
+      Marketer.countDocuments(),
+      Marketer.countDocuments({ status: "active" }),
+    ]);
+
+    // Aggregate seller counts per agent
+    const agentIds = agents.map((a) => a._id);
+    const sellerCounts = await Seller.aggregate([
+      { $match: { referredBy: { $in: agentIds } } },
+      {
+        $group: {
+          _id: "$referredBy",
+          totalReferred: { $sum: 1 },
+          activeReferred: {
+            $sum: { $cond: [{ $eq: ["$status", "active"] }, 1, 0] },
+          },
+        },
+      },
+    ]);
+
+    const countMap = {};
+    sellerCounts.forEach((c) => {
+      countMap[c._id.toString()] = c;
+    });
+
+    const formattedAgents = agents.map((agent) => {
+      const counts = countMap[agent._id.toString()] || { totalReferred: 0, activeReferred: 0 };
+      const name = `${agent.firstName || ""} ${agent.lastName || ""}`.trim() || "N/A";
+      const referralCode =
+        agent.marketerInfo?.referralCode ||
+        agent.referralCode ||
+        agent.code ||
+        "N/A";
+
+      const counties =
+        (Array.isArray(agent.marketerInfo?.territory?.counties) && agent.marketerInfo.territory.counties.length > 0
+          ? agent.marketerInfo.territory.counties
+          : null) ||
+        (Array.isArray(agent.assignedCounties) && agent.assignedCounties.length > 0
+          ? agent.assignedCounties
+          : null) ||
+        (agent.location?.county ? [agent.location.county] : []);
+
+      const commissionRate =
+        agent.marketerInfo?.commission?.rate !== undefined
+          ? Math.round(agent.marketerInfo.commission.rate * (agent.marketerInfo.commission.rate <= 1 ? 100 : 1))
+          : agent.commissionRate || 10;
+
+      return {
+        _id: agent._id,
+        name,
+        firstName: agent.firstName,
+        lastName: agent.lastName,
+        email: agent.email || "N/A",
+        phone: agent.phone || "N/A",
+        code: referralCode,
+        referralCode: referralCode,
+        status: agent.status || "active",
+        isActive: agent.isActive !== false,
+        counties: counties,
+        assignedCountiesFormatted:
+          counties.length > 0 ? counties.join(", ") : "All Regions",
+        onboardedCount: counts.totalReferred,
+        activeSellersCount: counts.activeReferred,
+        commissionRate: commissionRate,
+        createdAt: agent.createdAt,
+      };
+    });
+
+    const totalArtisansOnboarded = formattedAgents.reduce((sum, a) => sum + a.onboardedCount, 0);
+    const totalPages = isAll ? 1 : Math.ceil(totalFiltered / (limitNum || 20)) || 1;
+
+    res.status(200).json({
+      success: true,
+      data: {
+        agents: formattedAgents,
+        pagination: {
+          total: totalFiltered,
+          page: isAll ? 1 : pageNum,
+          limit: isAll ? totalFiltered : limitNum,
+          totalPages,
+          hasMore: !isAll && pageNum < totalPages,
+          isAll,
+        },
+        summary: {
+          totalAgents: totalAll,
+          filteredCount: totalFiltered,
+          activeAgents: totalActive,
+          totalOnboardedArtisans: totalArtisansOnboarded,
+        },
+      },
+    });
+  } catch (error) {
+    console.error("Error generating agent list report:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error generating agent list report",
+      error: error.message,
+    });
+  }
+};
+
+// @desc    Get products summary report
+// @route   GET /api/reports/products-summary
+// @access  Private/Admin
+const getProductSummaryReport = async (req, res) => {
+  try {
+    const {
+      page = 1,
+      limit = "all",
+      search = "",
+      sellerId = "",
+      category = "",
+      status = "",
+      startDate,
+      endDate,
+      sortBy = "createdAt",
+      sortOrder = "desc",
+      exportAll = "false",
+    } = req.query;
+
+    const query = {};
+
+    if (search && search.trim()) {
+      const searchRegex = new RegExp(search.trim(), "i");
+      query.$or = [
+        { title: searchRegex },
+        { description: searchRegex },
+        { sku: searchRegex },
+      ];
+    }
+
+    if (sellerId && sellerId.trim()) {
+      query.seller = sellerId.trim();
+    }
+
+    if (category && category.trim()) {
+      query.primaryCategory = category.trim();
+    }
+
+    if (status && status.trim()) {
+      query.status = status.trim();
+    }
+
+    if (startDate || endDate) {
+      query.createdAt = {};
+      if (startDate) {
+        query.createdAt.$gte = new Date(startDate);
+      }
+      if (endDate) {
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        query.createdAt.$lte = end;
+      }
+    }
+
+    const isAll = limit === "all" || limit === "0" || !limit || exportAll === "true";
+    const pageNum = parseInt(page, 10) || 1;
+    const limitNum = isAll ? null : parseInt(limit, 10) || 20;
+
+    let prodQuery = Product.find(query)
+      .populate("seller", "firstName lastName phone email businessInfo")
+      .populate("primaryCategory", "name")
+      .sort({ [sortBy]: sortOrder === "asc" ? 1 : -1 });
+
+    if (!isAll && limitNum) {
+      prodQuery = prodQuery.skip((pageNum - 1) * limitNum).limit(limitNum);
+    }
+
+    const [products, totalFiltered, totalAll, totalActive, totalPending] = await Promise.all([
+      prodQuery.lean(),
+      Product.countDocuments(query),
+      Product.countDocuments(),
+      Product.countDocuments({ status: "active" }),
+      Product.countDocuments({ status: "pending_approval" }),
+    ]);
+
+    const formattedProducts = products.map((prod) => {
+      const sellerName =
+        prod.seller?.businessInfo?.businessName ||
+        `${prod.seller?.firstName || ""} ${prod.seller?.lastName || ""}`.trim() ||
+        "N/A";
+
+      const categoryName =
+        prod.primaryCategory?.name ||
+        (typeof prod.primaryCategory === "string" ? prod.primaryCategory : "General");
+      const price = prod.price || prod.pricing?.basePrice || 0;
+      const stock =
+        prod.inventory?.quantity !== undefined
+          ? prod.inventory.quantity
+          : prod.stock || 0;
+
+      return {
+        _id: prod._id,
+        title: prod.title || "Untitled Product",
+        sellerName,
+        sellerPhone: prod.seller?.phone || "N/A",
+        sellerId: prod.seller?._id || null,
+        category: categoryName,
+        price,
+        stock,
+        views: prod.analytics?.views || prod.views || 0,
+        status: prod.status || "active",
+        createdAt: prod.createdAt,
+      };
+    });
+
+    const totalPages = isAll ? 1 : Math.ceil(totalFiltered / (limitNum || 20)) || 1;
+
+    res.status(200).json({
+      success: true,
+      data: {
+        products: formattedProducts,
+        pagination: {
+          total: totalFiltered,
+          page: isAll ? 1 : pageNum,
+          limit: isAll ? totalFiltered : limitNum,
+          totalPages,
+          hasMore: !isAll && pageNum < totalPages,
+          isAll,
+        },
+        summary: {
+          totalProducts: totalAll,
+          filteredCount: totalFiltered,
+          activeProducts: totalActive,
+          pendingProducts: totalPending,
+        },
+      },
+    });
+  } catch (error) {
+    console.error("Error generating product summary report:", error);
+    res.status(500).json({
+      success: false,
+      message: "Error generating product summary report",
+      error: error.message,
+    });
+  }
+};
+
 module.exports = {
   getRevenueReport,
   getUserGrowthReport,
@@ -1387,4 +1708,6 @@ module.exports = {
   getSearchAnalyticsReport,
   getFinancialSummaryReport,
   getArtisanListReport,
+  getAgentListReport,
+  getProductSummaryReport,
 };

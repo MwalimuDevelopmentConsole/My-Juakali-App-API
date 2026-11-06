@@ -472,9 +472,11 @@ const getProduct = async (req, res) => {
     }
 
     // Check if product is active and seller is active
+    const rawRole = (req?.user?.userType || req?.user?.role || "").toLowerCase();
+    const isAuthorizedViewer = ["seller", "admin", "super_admin"].includes(rawRole);
     if (
       (product.status !== "active" || product.seller?.status !== "active") &&
-      !["Seller", "Admin"].includes(req?.user?.userType)
+      !isAuthorizedViewer
     ) {
       return res.status(404).json({
         success: false,
@@ -776,7 +778,8 @@ const updateProduct = async (req, res) => {
       });
     }
 
-    // Check ownership (seller can only update their own products)
+    // Check ownership:
+    // Seller can only update their own products
     if (
       req.user.userType === "seller" &&
       product.seller.toString() !== req.user.id
@@ -785,6 +788,17 @@ const updateProduct = async (req, res) => {
         success: false,
         message: "Not authorized to update this product",
       });
+    }
+
+    // Marketer/Agent can update products of sellers they referred/onboarded
+    if (req.user.userType === "marketer") {
+      const seller = await Seller.findById(product.seller);
+      if (!seller || seller.referredBy?.toString() !== req.user.id) {
+        return res.status(403).json({
+          success: false,
+          message: "Not authorized to update products for this artisan",
+        });
+      }
     }
 
     const {
@@ -848,13 +862,16 @@ const updateProduct = async (req, res) => {
     // Update fields
     if (title) {
       product.title = title;
-      product.slug =
-        title
-          .toLowerCase()
-          .replace(/[^a-z0-9]+/g, "-")
-          .replace(/^-+|-+$/g, "") +
-        "-" +
-        Math.random().toString(36).substr(2, 9);
+      // Do NOT change existing slug on edit to preserve URLs, bookmarks, and SEO
+      if (!product.slug) {
+        product.slug =
+          title
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, "-")
+            .replace(/^-+|-+$/g, "") +
+          "-" +
+          Math.random().toString(36).substr(2, 9);
+      }
     }
 
     if (description) product.description = description;
@@ -999,6 +1016,7 @@ const getSellerProducts = async (req, res) => {
 
     const products = await Product.find(filter)
       .populate("primaryCategory", "name")
+      .populate("seller")
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limitNum)

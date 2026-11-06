@@ -1260,14 +1260,16 @@ const getAllSellers = async (req, res) => {
   } else {
     sortOptions.createdAt = -1; // Default sort by newest
   }
-  if (marketerId) {
-    query.referredBy = mongoose.Types.ObjectId(marketerId);
+  if (marketerId || req.query.agentId) {
+    query.referredBy = new mongoose.Types.ObjectId(marketerId || req.query.agentId);
   }
 
   try {
     const sellers = await Seller.find(query)
       .select(
-        "firstName lastName email phone businessInfo location status isActive verificationScore createdAt"
+        "firstName lastName email phone businessInfo location status isActive verificationScore createdAt referredBy"
+      )
+      .populate("referredBy", "firstName lastName phone email"
       )
       .sort(sortOptions)
       .skip((page - 1) * limit)
@@ -1291,7 +1293,144 @@ const getAllSellers = async (req, res) => {
   }
 };
 
+// @desc    Delete seller and associated products
+// @route   DELETE /api/sellers/:sellerId
+// @access  Private (Admin / super_admin)
+const deleteSeller = async (req, res) => {
+  try {
+    const { sellerId } = req.params;
+
+    const seller = await Seller.findById(sellerId);
+    if (!seller) {
+      return res.status(404).json({
+        success: false,
+        message: "Seller not found",
+      });
+    }
+
+    // Delete associated products
+    await Product.deleteMany({ seller: sellerId });
+
+    // Delete seller
+    await Seller.findByIdAndDelete(sellerId);
+
+    res.status(200).json({
+      success: true,
+      message: "Seller and associated products deleted successfully",
+      sellerId,
+    });
+  } catch (error) {
+    console.error("Error deleting seller:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server Error",
+      error: error.message,
+    });
+  }
+};
+
+
+// @desc    Admin update any seller profile
+// @route   PATCH /api/sellers/admin-update/:sellerId
+// @access  Admin/Super Admin only
+const adminUpdateSellerProfile = async (req, res) => {
+  try {
+    const { sellerId } = req.params;
+    const {
+      firstName,
+      lastName,
+      email,
+      phone,
+      bio,
+      businessInfo,
+      location,
+      socialLinks,
+      preferences,
+      status,
+    } = req.body;
+
+    const seller = await Seller.findById(sellerId);
+    if (!seller) {
+      return res.status(404).json({
+        success: false,
+        message: "Seller not found",
+      });
+    }
+
+    const checkDuplicate = async (models, field, value) => {
+      if (!value) return null;
+      const results = await Promise.all(
+        models.map((model) =>
+          model.findOne({ [field]: value, _id: { $ne: seller._id } }).lean()
+        )
+      );
+      return results.find((item) => item !== null) || null;
+    };
+
+    const models = [Buyer, Seller, Marketer];
+
+    // Handle email update (optional)
+    if (email !== undefined) {
+      const formattedEmail =
+        email && typeof email === "string" && email.trim()
+          ? email.toLowerCase().trim()
+          : undefined;
+
+      if (formattedEmail && formattedEmail !== seller.email) {
+        const emailExists = await checkDuplicate(models, "email", formattedEmail);
+        if (emailExists) {
+          return res.status(409).json({ success: false, message: "Email already registered" });
+        }
+        seller.email = formattedEmail;
+      } else if (!formattedEmail) {
+        seller.email = undefined;
+      }
+    }
+
+    // Handle phone update
+    if (phone && phone !== seller.phone) {
+      const phoneExists = await checkDuplicate(models, "phone", phone);
+      if (phoneExists) {
+        return res.status(409).json({ success: false, message: "Phone number already registered" });
+      }
+      seller.phone = phone;
+    }
+
+    if (firstName) seller.firstName = firstName.trim();
+    if (lastName) seller.lastName = lastName.trim();
+    if (bio !== undefined) seller.bio = bio;
+    if (status) seller.status = status;
+
+    if (businessInfo) {
+      seller.businessInfo = { ...seller.businessInfo, ...businessInfo };
+      if (businessInfo.specialties) {
+        seller.businessInfo.specialties = Array.isArray(businessInfo.specialties)
+          ? businessInfo.specialties
+          : businessInfo.specialties.split(",").map((s) => s.trim());
+      }
+    }
+    if (location) seller.location = { ...seller.location, ...location };
+    if (socialLinks) seller.socialLinks = { ...seller.socialLinks, ...socialLinks };
+    if (preferences) seller.preferences = { ...seller.preferences, ...preferences };
+
+    await seller.save();
+
+    res.status(200).json({
+      success: true,
+      message: "Seller profile updated successfully",
+      seller,
+    });
+  } catch (error) {
+    console.error("Error admin updating seller profile:", error);
+    res.status(500).json({
+      success: false,
+      message: error.message || "Failed to update seller profile",
+    });
+  }
+};
+
 module.exports = {
+  adminUpdateSellerProfile,
   registerSeller,
   getSellerProfile,
   updateSellerProfile,
@@ -1307,4 +1446,5 @@ module.exports = {
   getSellersByAgentId,
   getAllSellers,
   getSellerOverviewByAdmin,
+  deleteSeller,
 };

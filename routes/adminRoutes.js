@@ -50,11 +50,19 @@ router
     adminController.updateOwnProfile
   )
   .get("/:id", authenticateToken, isAdmin, adminController.getAdminById)
+  .patch("/:id", authenticateToken, isAdmin, adminController.updateAdmin)
   .patch(
     "/:id/status",
     authenticateToken,
     isAdmin,
     adminController.updateAdminAccountStatus
+  )
+  .patch(
+    "/:id/permissions",
+    authenticateToken,
+    isAdmin,
+    adminController.updateAdminPermissions
+  
   )
   .delete("/:id", authenticateToken, isAdmin, adminController.deleteAdmin);
 

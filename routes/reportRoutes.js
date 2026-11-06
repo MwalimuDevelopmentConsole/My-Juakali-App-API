@@ -36,5 +36,7 @@ router.get("/financial-summary", reportController.getFinancialSummaryReport);
 
 // Artisan list report
 router.get("/artisan-list", reportController.getArtisanListReport);
+router.get("/agent-list", reportController.getAgentListReport);
+router.get("/products-summary", reportController.getProductSummaryReport);
 
 module.exports = router;
