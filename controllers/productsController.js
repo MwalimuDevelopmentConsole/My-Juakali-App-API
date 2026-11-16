@@ -1087,7 +1087,7 @@ const searchProducts = async (req, res) => {
           from: "sellers",
           localField: "seller",
           foreignField: "_id",
-          as: "sellerInfo",
+          as: "seller",
         },
       },
       { $unwind: "$sellerInfo" },
@@ -1209,10 +1209,7 @@ const searchProducts = async (req, res) => {
       status: "active",
       $or: [{ title: searchRegex }, { tags: { $in: [searchRegex] } }],
     })
-      .populate(
-        "seller",
-        "firstName lastName businessInfo.businessName isActive status",
-      )
+      .populate("seller")
       .populate("primaryCategory", "name slug")
       .select("title slug pricing media.images location createdAt")
       .limit(5)
