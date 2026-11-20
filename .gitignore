@@ -17,3 +17,4 @@ docs
 UPLOAD_IMPLEMENTATION_SUMMARY.md
 
 //change to deploy
+pnpm-workspace.yaml

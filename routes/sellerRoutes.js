@@ -62,6 +62,31 @@ router
     "/manage-capabilities",
     authenticateToken,
     sellerController.manageSellerCapabilities
+  )
+  .patch(
+    "/admin-update/:sellerId",
+    authenticateToken,
+    sellerController.adminUpdateSellerProfile
+  )
+  .put(
+    "/admin-update/:sellerId",
+    authenticateToken,
+    sellerController.adminUpdateSellerProfile
+  )
+  .patch(
+    "/:sellerId",
+    authenticateToken,
+    sellerController.adminUpdateSellerProfile
+  )
+  .put(
+    "/:sellerId",
+    authenticateToken,
+    sellerController.adminUpdateSellerProfile
+  )
+  .delete(
+    "/:sellerId",
+    authenticateToken,
+    sellerController.deleteSeller
   );
 
 module.exports = router;

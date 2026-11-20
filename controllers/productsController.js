@@ -389,11 +389,65 @@ const getProducts = async (req, res) => {
   }
 };
 
-// @desc    Get single product
+// @desc    Get single product by ID or Slug
 // @access  Public
 const getProduct = async (req, res) => {
   try {
-    const product = await Product.findById(req.params.id)
+    const rawId = req.params.id || req.query.id;
+    const rawSlug = req.params.slug || req.query.slug;
+
+    // Filter out invalid placeholder strings like "undefined" or "null"
+    const cleanId =
+      rawId && rawId !== "undefined" && rawId !== "null"
+        ? String(rawId).trim()
+        : null;
+    const cleanSlug =
+      rawSlug && rawSlug !== "undefined" && rawSlug !== "null"
+        ? String(rawSlug).trim()
+        : null;
+
+    if (!cleanId && !cleanSlug) {
+      return res.status(400).json({
+        success: false,
+        message: "Product ID or slug is required",
+      });
+    }
+
+    const conditions = [];
+
+    // Helper to evaluate and push match criteria
+    const addConditionsFor = (val) => {
+      if (!val) return;
+      if (
+        mongoose.Types.ObjectId.isValid(val) &&
+        /^[0-9a-fA-F]{24}$/.test(val)
+      ) {
+        conditions.push({ _id: val });
+      }
+      // Value might be a slug
+      conditions.push({ slug: val });
+    };
+
+    if (cleanId) addConditionsFor(cleanId);
+    if (cleanSlug) addConditionsFor(cleanSlug);
+
+    // Deduplicate conditions
+    const uniqueConditions = [];
+    const seen = new Set();
+    for (const cond of conditions) {
+      const key = cond._id ? `id:${cond._id}` : `slug:${cond.slug}`;
+      if (!seen.has(key)) {
+        seen.add(key);
+        uniqueConditions.push(cond);
+      }
+    }
+
+    const query =
+      uniqueConditions.length === 1
+        ? uniqueConditions[0]
+        : { $or: uniqueConditions };
+
+    const product = await Product.findOne(query)
       .populate({
         path: "seller",
         select:
@@ -418,9 +472,11 @@ const getProduct = async (req, res) => {
     }
 
     // Check if product is active and seller is active
+    const rawRole = (req?.user?.userType || req?.user?.role || "").toLowerCase();
+    const isAuthorizedViewer = ["seller", "admin", "super_admin"].includes(rawRole);
     if (
-      (product.status !== "active" || product.seller.status !== "active") &&
-      !["Seller", "Admin"].includes(req?.user?.userType)
+      (product.status !== "active" || product.seller?.status !== "active") &&
+      !isAuthorizedViewer
     ) {
       return res.status(404).json({
         success: false,
@@ -428,15 +484,26 @@ const getProduct = async (req, res) => {
       });
     }
 
-    // Increment view count
-    await Product.findByIdAndUpdate(req.params.id, {
+    // Increment view count using product._id
+    await Product.findByIdAndUpdate(product._id, {
       $inc: { "stats.views": 1, "stats.uniqueViews": 1 },
       $set: { "stats.lastViewed": new Date() },
     });
 
+    const isSystemAdmin = ["admin", "super_admin"].includes(rawRole);
+    let productResponseData = product.toObject ? product.toObject() : { ...product };
+
+    // Strip cleanUrl for non-admin viewers to keep clean unwatermarked images private to admin
+    if (!isSystemAdmin && productResponseData.media?.images) {
+      productResponseData.media.images = productResponseData.media.images.map((img) => {
+        const { cleanUrl, ...safeImg } = img;
+        return safeImg;
+      });
+    }
+
     res.status(200).json({
       success: true,
-      product,
+      product: productResponseData,
     });
   } catch (error) {
     res.status(500).json({
@@ -593,33 +660,53 @@ const createProduct = async (req, res) => {
       "-" +
       Math.random().toString(36).substr(2, 9);
 
-    // Handle image uploads - use temp paths, processing happens in background
+    // Handle image uploads - save both watermarked and clean versions
     let images = [];
     if (req.files && req.files.length > 0) {
+      const applyWatermark =
+        req.body.applyWatermark !== undefined
+          ? req.body.applyWatermark === "true" || req.body.applyWatermark === true
+          : true;
+
+      const watermarkText =
+        req.body.watermark ||
+        seller.businessInfo?.businessName ||
+        [seller.firstName, seller.lastName].filter(Boolean).join(" ") ||
+        "";
+
       for (let i = 0; i < req.files.length; i++) {
         const file = req.files[i];
 
-        // Generate the optimized path that will exist after processing
-        const optimizedPath = file.path
+        const baseOptimized = file.path
           .replace("/temp/", "/optimized/")
-          .replace(/\.[^.]+$/, ".webp");
+          .replace(/\.[^.]+$/, "");
 
-        const fileName = require("path").basename(optimizedPath);
-        // Use BunnyCDN Pull Zone URL
+        const fileName = require("path").basename(baseOptimized);
+        const wmFileName = `${fileName}.webp`;
+        const cleanFileName = `${fileName}-clean.webp`;
+
+        // Use BunnyCDN Pull Zone URL or API_DOMAIN
         const pullZone = process.env.BUNNY_PULL_ZONE
           ? process.env.BUNNY_PULL_ZONE.replace(/\/$/, "")
           : process.env.API_DOMAIN;
-        // Default folder is 'uploads' as per bunnyCdn.js
+
         const imageUrl = process.env.BUNNY_PULL_ZONE
-          ? `${pullZone}/uploads/${fileName}`
-          : `${process.env.API_DOMAIN}/${optimizedPath}`; // Fallback to local if no pull zone
+          ? `${pullZone}/uploads/${wmFileName}`
+          : `${process.env.API_DOMAIN}/uploads/optimized/${wmFileName}`;
+
+        const cleanUrl = process.env.BUNNY_PULL_ZONE
+          ? `${pullZone}/uploads/${cleanFileName}`
+          : `${process.env.API_DOMAIN}/uploads/optimized/${cleanFileName}`;
 
         images.push({
           url: imageUrl,
+          cleanUrl,
           publicId: null,
           alt: file.originalname,
           isPrimary: i === 0,
           order: i,
+          hasWatermark: applyWatermark,
+          watermarkText: applyWatermark ? watermarkText : "",
         });
       }
     }
@@ -722,7 +809,8 @@ const updateProduct = async (req, res) => {
       });
     }
 
-    // Check ownership (seller can only update their own products)
+    // Check ownership:
+    // Seller can only update their own products
     if (
       req.user.userType === "seller" &&
       product.seller.toString() !== req.user.id
@@ -731,6 +819,17 @@ const updateProduct = async (req, res) => {
         success: false,
         message: "Not authorized to update this product",
       });
+    }
+
+    // Marketer/Agent can update products of sellers they referred/onboarded
+    if (req.user.userType === "marketer") {
+      const seller = await Seller.findById(product.seller);
+      if (!seller || seller.referredBy?.toString() !== req.user.id) {
+        return res.status(403).json({
+          success: false,
+          message: "Not authorized to update products for this artisan",
+        });
+      }
     }
 
     const {
@@ -758,33 +857,100 @@ const updateProduct = async (req, res) => {
     if (existingImages !== undefined) {
       const parsedExistingImages = safeParse(existingImages, []);
       if (Array.isArray(parsedExistingImages)) {
-        product.media.images = parsedExistingImages;
+        product.media.images = parsedExistingImages.map((img, idx) => {
+          if (typeof img === "string") {
+            const existing = product.media.images.find(
+              (i) => i.url === img || i.cleanUrl === img
+            );
+            return {
+              url: img,
+              cleanUrl: existing?.cleanUrl || img,
+              alt: existing?.alt || product.title,
+              isPrimary: idx === 0,
+              order: idx,
+              hasWatermark: existing?.hasWatermark ?? true,
+              watermarkText: existing?.watermarkText || "",
+            };
+          }
+          if (typeof img === "object" && img !== null) {
+            const existing = product.media.images.find(
+              (i) =>
+                (img._id && i._id && i._id.toString() === img._id.toString()) ||
+                i.url === img.url ||
+                (img.cleanUrl && i.cleanUrl === img.cleanUrl)
+            );
+            return {
+              url: img.url || existing?.url,
+              cleanUrl: img.cleanUrl || existing?.cleanUrl || img.url,
+              alt: img.alt || existing?.alt || product.title,
+              isPrimary: img.isPrimary !== undefined ? img.isPrimary : idx === 0,
+              order: idx,
+              hasWatermark:
+                img.hasWatermark !== undefined
+                  ? img.hasWatermark
+                  : existing?.hasWatermark ?? true,
+              watermarkText: img.watermarkText || existing?.watermarkText || "",
+            };
+          }
+          return img;
+        });
       }
     }
 
-    // Handle image uploads (if any new images) - use optimized paths
+    // Handle image uploads (if any new images) - generate both watermarked and clean versions
     if (req.files && req.files.length > 0) {
       const currentImageCount = product.media.images.length;
+      const applyWatermark =
+        req.body.applyWatermark !== undefined
+          ? req.body.applyWatermark === "true" || req.body.applyWatermark === true
+          : true;
+
+      // Resolve seller business name for watermark
+      let defaultWatermarkText = req.body.watermark || "";
+      if (!defaultWatermarkText) {
+        try {
+          const sellerObj = await Seller.findById(product.seller).select("firstName lastName businessInfo");
+          if (sellerObj) {
+            defaultWatermarkText =
+              sellerObj.businessInfo?.businessName ||
+              [sellerObj.firstName, sellerObj.lastName].filter(Boolean).join(" ") ||
+              "";
+          }
+        } catch (e) {
+          // ignore
+        }
+      }
 
       const newImages = req.files.map((file, index) => {
-        const optimizedPath = file.path
+        const baseOptimized = file.path
           .replace("/temp/", "/optimized/")
-          .replace(/\.[^.]+$/, ".webp");
+          .replace(/\.[^.]+$/, "");
 
-        const fileName = require("path").basename(optimizedPath);
+        const fileName = require("path").basename(baseOptimized);
+        const wmFileName = `${fileName}.webp`;
+        const cleanFileName = `${fileName}-clean.webp`;
+
         const pullZone = process.env.BUNNY_PULL_ZONE
           ? process.env.BUNNY_PULL_ZONE.replace(/\/$/, "")
           : process.env.API_DOMAIN;
+
         const imageUrl = process.env.BUNNY_PULL_ZONE
-          ? `${pullZone}/uploads/${fileName}`
-          : `${process.env.API_DOMAIN}/${optimizedPath}`;
+          ? `${pullZone}/uploads/${wmFileName}`
+          : `${process.env.API_DOMAIN}/uploads/optimized/${wmFileName}`;
+
+        const cleanUrl = process.env.BUNNY_PULL_ZONE
+          ? `${pullZone}/uploads/${cleanFileName}`
+          : `${process.env.API_DOMAIN}/uploads/optimized/${cleanFileName}`;
 
         return {
           url: imageUrl,
+          cleanUrl,
           publicId: null,
           alt: file.originalname,
           isPrimary: currentImageCount === 0 && index === 0,
           order: currentImageCount + index,
+          hasWatermark: applyWatermark,
+          watermarkText: applyWatermark ? defaultWatermarkText : "",
         };
       });
 
@@ -794,13 +960,16 @@ const updateProduct = async (req, res) => {
     // Update fields
     if (title) {
       product.title = title;
-      product.slug =
-        title
-          .toLowerCase()
-          .replace(/[^a-z0-9]+/g, "-")
-          .replace(/^-+|-+$/g, "") +
-        "-" +
-        Math.random().toString(36).substr(2, 9);
+      // Do NOT change existing slug on edit to preserve URLs, bookmarks, and SEO
+      if (!product.slug) {
+        product.slug =
+          title
+            .toLowerCase()
+            .replace(/[^a-z0-9]+/g, "-")
+            .replace(/^-+|-+$/g, "") +
+          "-" +
+          Math.random().toString(36).substr(2, 9);
+      }
     }
 
     if (description) product.description = description;
@@ -945,6 +1114,7 @@ const getSellerProducts = async (req, res) => {
 
     const products = await Product.find(filter)
       .populate("primaryCategory", "name")
+      .populate("seller")
       .sort({ createdAt: -1 })
       .skip(skip)
       .limit(limitNum)
@@ -1015,7 +1185,7 @@ const searchProducts = async (req, res) => {
           from: "sellers",
           localField: "seller",
           foreignField: "_id",
-          as: "sellerInfo",
+          as: "seller",
         },
       },
       { $unwind: "$sellerInfo" },
@@ -1137,10 +1307,7 @@ const searchProducts = async (req, res) => {
       status: "active",
       $or: [{ title: searchRegex }, { tags: { $in: [searchRegex] } }],
     })
-      .populate(
-        "seller",
-        "firstName lastName businessInfo.businessName isActive status",
-      )
+      .populate("seller")
       .populate("primaryCategory", "name slug")
       .select("title slug pricing media.images location createdAt")
       .limit(5)

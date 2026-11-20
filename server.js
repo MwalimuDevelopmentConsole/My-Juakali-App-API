@@ -82,7 +82,45 @@ const io = initializeSocketServer(server, {
 app.use(attachSocketIO(io));
 
 // ✅ Start server after DB connection
+
+// Auto-seed AI settings & Knowledge Base if not exists
+const seedAiSettings = async () => {
+  try {
+    const AiSettings = require('./models/AiSettings');
+    const { DEFAULT_KNOWLEDGE_BASE } = require('./utils/defaultKnowledgeBase');
+    const existing = await AiSettings.findOne();
+    if (!existing) {
+      await AiSettings.create({
+        openai: {
+          apiKey: process.env.OPENAI_API_KEY || "",
+          defaultModel: "gpt-4o-mini",
+          enabledForProducts: true,
+          enabledForBlogs: false,
+          status: "disconnected",
+        },
+        anthropic: {
+          apiKey: process.env.ANTHROPIC_API_KEY || "",
+          defaultModel: "claude-sonnet-4-5-20250929",
+          enabledForProducts: true,
+          enabledForBlogs: false,
+          status: "disconnected",
+        },
+        knowledgeBase: {
+          content: DEFAULT_KNOWLEDGE_BASE,
+          version: 1,
+          lastUpdated: new Date(),
+          updatedBy: "System Seed",
+        },
+      });
+      console.log('Seeded default AI settings & Artisan Knowledge Base');
+    }
+  } catch (err) {
+    console.error('Error seeding AI settings:', err.message);
+  }
+};
+
 mongoose.connection.once('open', () => {
+  seedAiSettings();
   console.log(process.env.NODE_ENV);
   console.log('Connected to MongoDB');
 

@@ -52,8 +52,13 @@ router.get("/admin", authenticateToken, authorize(["admin", "super_admin"]), get
 
 router.patch("/update-status", authenticateToken, authorize(["admin", "super_admin"]), updateProductStatus);
 
+// @route   GET /api/products/slug/:slug
+// @desc    Get single product by slug
+// @access  Public
+router.get("/slug/:slug", optionalAuth, getProduct);
+
 // @route   GET /api/products/:id
-// @desc    Get single product by ID
+// @desc    Get single product by ID or Slug
 // @access  Public
 router.get("/:id", optionalAuth, getProduct);
 
@@ -63,7 +68,7 @@ router.get("/:id", optionalAuth, getProduct);
 router.post(
   "/",
   authenticateToken,
-  authorize(["seller", "admin", "super_admin"]),
+  authorize(["seller", "admin", "super_admin", "marketer"]),
   upload.array("images", 15),
   processUploadedImages,
   handleMulterError,
@@ -76,7 +81,7 @@ router.post(
 router.patch(
   "/update/:id",
   authenticateToken,
-  authorize(["seller", "admin", "super_admin"]),
+  authorize(["seller", "admin", "super_admin", "marketer"]),
   upload.array("images", 15),
   processUploadedImages,
   handleMulterError,
