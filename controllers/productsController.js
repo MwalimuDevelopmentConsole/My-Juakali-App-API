@@ -490,9 +490,20 @@ const getProduct = async (req, res) => {
       $set: { "stats.lastViewed": new Date() },
     });
 
+    const isSystemAdmin = ["admin", "super_admin"].includes(rawRole);
+    let productResponseData = product.toObject ? product.toObject() : { ...product };
+
+    // Strip cleanUrl for non-admin viewers to keep clean unwatermarked images private to admin
+    if (!isSystemAdmin && productResponseData.media?.images) {
+      productResponseData.media.images = productResponseData.media.images.map((img) => {
+        const { cleanUrl, ...safeImg } = img;
+        return safeImg;
+      });
+    }
+
     res.status(200).json({
       success: true,
-      product,
+      product: productResponseData,
     });
   } catch (error) {
     res.status(500).json({
@@ -649,33 +660,53 @@ const createProduct = async (req, res) => {
       "-" +
       Math.random().toString(36).substr(2, 9);
 
-    // Handle image uploads - use temp paths, processing happens in background
+    // Handle image uploads - save both watermarked and clean versions
     let images = [];
     if (req.files && req.files.length > 0) {
+      const applyWatermark =
+        req.body.applyWatermark !== undefined
+          ? req.body.applyWatermark === "true" || req.body.applyWatermark === true
+          : true;
+
+      const watermarkText =
+        req.body.watermark ||
+        seller.businessInfo?.businessName ||
+        [seller.firstName, seller.lastName].filter(Boolean).join(" ") ||
+        "";
+
       for (let i = 0; i < req.files.length; i++) {
         const file = req.files[i];
 
-        // Generate the optimized path that will exist after processing
-        const optimizedPath = file.path
+        const baseOptimized = file.path
           .replace("/temp/", "/optimized/")
-          .replace(/\.[^.]+$/, ".webp");
+          .replace(/\.[^.]+$/, "");
 
-        const fileName = require("path").basename(optimizedPath);
-        // Use BunnyCDN Pull Zone URL
+        const fileName = require("path").basename(baseOptimized);
+        const wmFileName = `${fileName}.webp`;
+        const cleanFileName = `${fileName}-clean.webp`;
+
+        // Use BunnyCDN Pull Zone URL or API_DOMAIN
         const pullZone = process.env.BUNNY_PULL_ZONE
           ? process.env.BUNNY_PULL_ZONE.replace(/\/$/, "")
           : process.env.API_DOMAIN;
-        // Default folder is 'uploads' as per bunnyCdn.js
+
         const imageUrl = process.env.BUNNY_PULL_ZONE
-          ? `${pullZone}/uploads/${fileName}`
-          : `${process.env.API_DOMAIN}/${optimizedPath}`; // Fallback to local if no pull zone
+          ? `${pullZone}/uploads/${wmFileName}`
+          : `${process.env.API_DOMAIN}/uploads/optimized/${wmFileName}`;
+
+        const cleanUrl = process.env.BUNNY_PULL_ZONE
+          ? `${pullZone}/uploads/${cleanFileName}`
+          : `${process.env.API_DOMAIN}/uploads/optimized/${cleanFileName}`;
 
         images.push({
           url: imageUrl,
+          cleanUrl,
           publicId: null,
           alt: file.originalname,
           isPrimary: i === 0,
           order: i,
+          hasWatermark: applyWatermark,
+          watermarkText: applyWatermark ? watermarkText : "",
         });
       }
     }
@@ -826,33 +857,100 @@ const updateProduct = async (req, res) => {
     if (existingImages !== undefined) {
       const parsedExistingImages = safeParse(existingImages, []);
       if (Array.isArray(parsedExistingImages)) {
-        product.media.images = parsedExistingImages;
+        product.media.images = parsedExistingImages.map((img, idx) => {
+          if (typeof img === "string") {
+            const existing = product.media.images.find(
+              (i) => i.url === img || i.cleanUrl === img
+            );
+            return {
+              url: img,
+              cleanUrl: existing?.cleanUrl || img,
+              alt: existing?.alt || product.title,
+              isPrimary: idx === 0,
+              order: idx,
+              hasWatermark: existing?.hasWatermark ?? true,
+              watermarkText: existing?.watermarkText || "",
+            };
+          }
+          if (typeof img === "object" && img !== null) {
+            const existing = product.media.images.find(
+              (i) =>
+                (img._id && i._id && i._id.toString() === img._id.toString()) ||
+                i.url === img.url ||
+                (img.cleanUrl && i.cleanUrl === img.cleanUrl)
+            );
+            return {
+              url: img.url || existing?.url,
+              cleanUrl: img.cleanUrl || existing?.cleanUrl || img.url,
+              alt: img.alt || existing?.alt || product.title,
+              isPrimary: img.isPrimary !== undefined ? img.isPrimary : idx === 0,
+              order: idx,
+              hasWatermark:
+                img.hasWatermark !== undefined
+                  ? img.hasWatermark
+                  : existing?.hasWatermark ?? true,
+              watermarkText: img.watermarkText || existing?.watermarkText || "",
+            };
+          }
+          return img;
+        });
       }
     }
 
-    // Handle image uploads (if any new images) - use optimized paths
+    // Handle image uploads (if any new images) - generate both watermarked and clean versions
     if (req.files && req.files.length > 0) {
       const currentImageCount = product.media.images.length;
+      const applyWatermark =
+        req.body.applyWatermark !== undefined
+          ? req.body.applyWatermark === "true" || req.body.applyWatermark === true
+          : true;
+
+      // Resolve seller business name for watermark
+      let defaultWatermarkText = req.body.watermark || "";
+      if (!defaultWatermarkText) {
+        try {
+          const sellerObj = await Seller.findById(product.seller).select("firstName lastName businessInfo");
+          if (sellerObj) {
+            defaultWatermarkText =
+              sellerObj.businessInfo?.businessName ||
+              [sellerObj.firstName, sellerObj.lastName].filter(Boolean).join(" ") ||
+              "";
+          }
+        } catch (e) {
+          // ignore
+        }
+      }
 
       const newImages = req.files.map((file, index) => {
-        const optimizedPath = file.path
+        const baseOptimized = file.path
           .replace("/temp/", "/optimized/")
-          .replace(/\.[^.]+$/, ".webp");
+          .replace(/\.[^.]+$/, "");
 
-        const fileName = require("path").basename(optimizedPath);
+        const fileName = require("path").basename(baseOptimized);
+        const wmFileName = `${fileName}.webp`;
+        const cleanFileName = `${fileName}-clean.webp`;
+
         const pullZone = process.env.BUNNY_PULL_ZONE
           ? process.env.BUNNY_PULL_ZONE.replace(/\/$/, "")
           : process.env.API_DOMAIN;
+
         const imageUrl = process.env.BUNNY_PULL_ZONE
-          ? `${pullZone}/uploads/${fileName}`
-          : `${process.env.API_DOMAIN}/${optimizedPath}`;
+          ? `${pullZone}/uploads/${wmFileName}`
+          : `${process.env.API_DOMAIN}/uploads/optimized/${wmFileName}`;
+
+        const cleanUrl = process.env.BUNNY_PULL_ZONE
+          ? `${pullZone}/uploads/${cleanFileName}`
+          : `${process.env.API_DOMAIN}/uploads/optimized/${cleanFileName}`;
 
         return {
           url: imageUrl,
+          cleanUrl,
           publicId: null,
           alt: file.originalname,
           isPrimary: currentImageCount === 0 && index === 0,
           order: currentImageCount + index,
+          hasWatermark: applyWatermark,
+          watermarkText: applyWatermark ? defaultWatermarkText : "",
         };
       });
 

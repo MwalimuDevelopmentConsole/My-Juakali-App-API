@@ -109,6 +109,16 @@ const productSchema = new Schema(
             type: String,
             required: true,
           },
+          cleanUrl: {
+            type: String,
+          },
+          watermarkText: {
+            type: String,
+          },
+          hasWatermark: {
+            type: Boolean,
+            default: false,
+          },
           publicId: String,
           alt: String,
           isPrimary: {

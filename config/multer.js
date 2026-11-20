@@ -53,17 +53,23 @@ const escapeXml = (unsafe) => {
 // Helper to resolve seller and company watermark information
 const resolveWatermarkInfo = async (req) => {
   const companyName = (req.body?.companyName || "craftory").trim();
+  const applyWatermark =
+    req.body?.applyWatermark !== undefined
+      ? req.body.applyWatermark === "true" || req.body.applyWatermark === true
+      : true;
   let sellerName = "";
 
-  // 1. Explicitly provided in request body
-  if (req.body?.sellerName && typeof req.body.sellerName === "string" && req.body.sellerName.trim()) {
+  // 1. Explicitly provided in request body (e.g. from admin image modal or form)
+  if (req.body?.watermark && typeof req.body.watermark === "string" && req.body.watermark.trim()) {
+    sellerName = req.body.watermark.trim();
+  } else if (req.body?.sellerName && typeof req.body.sellerName === "string" && req.body.sellerName.trim()) {
     sellerName = req.body.sellerName.trim();
   } else if (req.body?.businessName && typeof req.body.businessName === "string" && req.body.businessName.trim()) {
     sellerName = req.body.businessName.trim();
   }
 
-  // 2. From authenticated user (seller)
-  if (!sellerName && req.user) {
+  // 2. From authenticated user if they are a seller
+  if (!sellerName && req.user && req.user.userType === "seller") {
     if (req.user.businessInfo?.businessName && req.user.businessInfo.businessName.trim()) {
       sellerName = req.user.businessInfo.businessName.trim();
     } else {
@@ -115,14 +121,16 @@ const resolveWatermarkInfo = async (req) => {
   return {
     sellerName,
     companyName,
+    applyWatermark,
   };
 };
 
-// Process image: add watermark and optimize
+// Process image: always save clean (unwatermarked) version and public (watermarked or clean based on applyWatermark)
 const processImage = async (filePath, watermarkOptions = {}, companyNameOverride = null) => {
   try {
     let sellerName = "";
     let companyName = "craftory";
+    let applyWatermark = true;
 
     if (typeof watermarkOptions === "string") {
       sellerName = watermarkOptions;
@@ -132,6 +140,11 @@ const processImage = async (filePath, watermarkOptions = {}, companyNameOverride
     } else if (watermarkOptions && typeof watermarkOptions === "object") {
       sellerName = watermarkOptions.sellerName || watermarkOptions.businessName || "";
       companyName = watermarkOptions.companyName || companyNameOverride || "craftory";
+      if (watermarkOptions.applyWatermark !== undefined) {
+        applyWatermark =
+          watermarkOptions.applyWatermark === true ||
+          watermarkOptions.applyWatermark === "true";
+      }
     }
 
     let image = sharp(filePath);
@@ -150,98 +163,121 @@ const processImage = async (filePath, watermarkOptions = {}, companyNameOverride
       metadata = await image.metadata();
     }
 
-    // Watermark Configuration - Centered to prevent image cropping/theft
-    const width = metadata.width;
-    const height = metadata.height;
-    const minDim = Math.min(width, height);
-
-    // Font size relative to smaller dimension for balanced center placement
-    const fontSize = Math.max(Math.floor(minDim * 0.048), 18);
-    const companyFontSize = Math.max(Math.floor(fontSize * 0.72), 13);
-
-    const cleanSeller = (sellerName || "").trim().toUpperCase();
-    const cleanCompany = (companyName || "craftory").trim().toUpperCase();
-
-    const safeSeller = escapeXml(cleanSeller);
-    const safeCompany = escapeXml(cleanCompany);
-
-    let content = "";
-    if (safeSeller && safeSeller !== safeCompany) {
-      const lineGap = Math.floor(fontSize * 0.35);
-      // Vertically centered around height / 2
-      const ySeller = Math.floor(height / 2 - lineGap / 2);
-      const yCompany = Math.floor(height / 2 + companyFontSize + lineGap / 2);
-
-      content = `
-        <text x="${width / 2}" y="${ySeller}" class="center-seller-watermark">${safeSeller}</text>
-        <text x="${width / 2}" y="${yCompany}" class="center-company-watermark">${safeCompany}</text>
-      `;
-    } else {
-      const ySolo = Math.floor(height / 2 + fontSize * 0.35);
-      content = `
-        <text x="${width / 2}" y="${ySolo}" class="center-solo-watermark">${safeCompany || safeSeller}</text>
-      `;
-    }
-
-    // Create professional SVG watermark placed at the center
-    // Semi-transparent with drop shadow for clarity on any background
-    const svgWatermark = `
-      <svg width="${width}" height="${height}">
-        <style>
-          .center-seller-watermark { 
-            fill: rgba(255, 255, 255, 0.6);
-            font-size: ${fontSize}px; 
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; 
-            font-weight: 700;
-            text-anchor: middle;
-            filter: drop-shadow(0px 2px 5px rgba(0,0,0,0.7)) drop-shadow(0px 0px 2px rgba(0,0,0,0.8));
-            letter-spacing: 0.08em;
-          }
-          .center-company-watermark { 
-            fill: rgba(255, 255, 255, 0.5);
-            font-size: ${companyFontSize}px; 
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; 
-            font-weight: 600;
-            text-anchor: middle;
-            filter: drop-shadow(0px 2px 5px rgba(0,0,0,0.7)) drop-shadow(0px 0px 2px rgba(0,0,0,0.8));
-            letter-spacing: 0.16em;
-          }
-          .center-solo-watermark { 
-            fill: rgba(255, 255, 255, 0.6);
-            font-size: ${fontSize}px; 
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; 
-            font-weight: 700;
-            text-anchor: middle;
-            filter: drop-shadow(0px 2px 5px rgba(0,0,0,0.7)) drop-shadow(0px 0px 2px rgba(0,0,0,0.8));
-            letter-spacing: 0.12em;
-          }
-        </style>
-        ${content}
-      </svg>
-    `;
-
-    const watermarkBuffer = Buffer.from(svgWatermark);
-
-    // Always output as WebP (most lightweight format)
-    const outputPath = filePath
+    // Define output paths for both clean and public/watermarked versions
+    const cleanOutputPath = filePath
       .replace("/temp/", "/optimized/")
-      .replace(path.extname(filePath), ".webp");
+      .replace(/\.[^.]+$/, "-clean.webp");
 
-    // Add watermark and convert to WebP
-    // Using default 'over' blend mode which is standard for overlays
+    const wmOutputPath = filePath
+      .replace("/temp/", "/optimized/")
+      .replace(/\.[^.]+$/, ".webp");
+
+    // 1. ALWAYS CREATE THE CLEAN (UNWATERMARKED) WEBP VERSION (For Admin Only)
     await image
-      .composite([{ input: watermarkBuffer, top: 0, left: 0 }])
+      .clone()
       .webp({
         quality: 85,
         effort: 6,
       })
-      .toFile(outputPath);
+      .toFile(cleanOutputPath);
 
-    // Upload to BunnyCDN
+    // 2. CREATE THE PUBLIC VERSION (Watermarked if applyWatermark is true, otherwise clean to avoid double watermark)
+    if (applyWatermark) {
+      const width = metadata.width;
+      const height = metadata.height;
+      const minDim = Math.min(width, height);
+
+      // Font size relative to smaller dimension for balanced center placement
+      const fontSize = Math.max(Math.floor(minDim * 0.048), 18);
+      const companyFontSize = Math.max(Math.floor(fontSize * 0.72), 13);
+
+      const cleanSeller = (sellerName || "").trim().toUpperCase();
+      const cleanCompany = (companyName || "craftory").trim().toUpperCase();
+
+      const safeSeller = escapeXml(cleanSeller);
+      const safeCompany = escapeXml(cleanCompany);
+
+      let content = "";
+      if (safeSeller && safeSeller !== safeCompany) {
+        const lineGap = Math.floor(fontSize * 0.35);
+        const ySeller = Math.floor(height / 2 - lineGap / 2);
+        const yCompany = Math.floor(height / 2 + companyFontSize + lineGap / 2);
+
+        content = `
+          <text x="${width / 2}" y="${ySeller}" class="center-seller-watermark">${safeSeller}</text>
+          <text x="${width / 2}" y="${yCompany}" class="center-company-watermark">${safeCompany}</text>
+        `;
+      } else {
+        const ySolo = Math.floor(height / 2 + fontSize * 0.35);
+        content = `
+          <text x="${width / 2}" y="${ySolo}" class="center-solo-watermark">${safeCompany || safeSeller}</text>
+        `;
+      }
+
+      const svgWatermark = `
+        <svg width="${width}" height="${height}">
+          <style>
+            .center-seller-watermark { 
+              fill: rgba(255, 255, 255, 0.6);
+              font-size: ${fontSize}px; 
+              font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; 
+              font-weight: 700;
+              text-anchor: middle;
+              filter: drop-shadow(0px 2px 5px rgba(0,0,0,0.7)) drop-shadow(0px 0px 2px rgba(0,0,0,0.8));
+              letter-spacing: 0.08em;
+            }
+            .center-company-watermark { 
+              fill: rgba(255, 255, 255, 0.5);
+              font-size: ${companyFontSize}px; 
+              font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; 
+              font-weight: 600;
+              text-anchor: middle;
+              filter: drop-shadow(0px 2px 5px rgba(0,0,0,0.7)) drop-shadow(0px 0px 2px rgba(0,0,0,0.8));
+              letter-spacing: 0.16em;
+            }
+            .center-solo-watermark { 
+              fill: rgba(255, 255, 255, 0.6);
+              font-size: ${fontSize}px; 
+              font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; 
+              font-weight: 700;
+              text-anchor: middle;
+              filter: drop-shadow(0px 2px 5px rgba(0,0,0,0.7)) drop-shadow(0px 0px 2px rgba(0,0,0,0.8));
+              letter-spacing: 0.12em;
+            }
+          </style>
+          ${content}
+        </svg>
+      `;
+
+      const watermarkBuffer = Buffer.from(svgWatermark);
+
+      await image
+        .clone()
+        .composite([{ input: watermarkBuffer, top: 0, left: 0 }])
+        .webp({
+          quality: 85,
+          effort: 6,
+        })
+        .toFile(wmOutputPath);
+    } else {
+      // applyWatermark is false (to avoid double watermarking):
+      // Public version is saved without added watermark overlay
+      await image
+        .clone()
+        .webp({
+          quality: 85,
+          effort: 6,
+        })
+        .toFile(wmOutputPath);
+    }
+
+    // Upload both to BunnyCDN if configured
     try {
       if (process.env.BUNNY_API_KEY && process.env.BUNNY_STORAGE_NAME) {
-        await uploadToBunnyCDN(outputPath);
-        console.log(`✅ Uploaded to BunnyCDN: ${path.basename(outputPath)}`);
+        await uploadToBunnyCDN(cleanOutputPath);
+        console.log(`✅ Uploaded clean image to BunnyCDN: ${path.basename(cleanOutputPath)}`);
+        await uploadToBunnyCDN(wmOutputPath);
+        console.log(`✅ Uploaded public image to BunnyCDN: ${path.basename(wmOutputPath)}`);
       }
     } catch (uploadError) {
       console.error("BunnyCDN upload failed:", uploadError.message);
@@ -262,8 +298,12 @@ const processImage = async (filePath, watermarkOptions = {}, companyNameOverride
 
     return {
       originalPath: filePath,
-      optimizedPath: outputPath,
-      filename: path.basename(outputPath),
+      cleanPath: cleanOutputPath,
+      optimizedPath: wmOutputPath,
+      filename: path.basename(wmOutputPath),
+      cleanFilename: path.basename(cleanOutputPath),
+      hasWatermark: applyWatermark,
+      watermarkText: applyWatermark ? sellerName : "",
     };
   } catch (error) {
     console.error("Error processing image:", error);
